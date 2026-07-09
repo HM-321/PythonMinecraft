@@ -23,7 +23,7 @@ class TitleScreen:
                z=1)
 
         # タイトル
-        Text(parent=self.root, text='MY CRAFT',
+        Text(parent=self.root, text='MYNECRAFT',
              origin=(0, 0), y=0.25, scale=5, color=color.white)
 
         Text(parent=self.root, text='Python + Ursina',
