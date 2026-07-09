@@ -31,3 +31,7 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Project-specific
+saves/
+screenshots/
