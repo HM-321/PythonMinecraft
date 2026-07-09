@@ -56,6 +56,7 @@ game = {
     'world': None,
     'player': None,
     'hotbar': None,
+    'crosshair': None,      # ← 追加
     'selection': None,
     'debug': None,
     'first_frame': True,
@@ -73,7 +74,7 @@ def start_game(save_path, is_new):
     app.win.requestProperties(props)
     mouse.visible = False
 
-    Crosshair()
+    game['crosshair'] = Crosshair()
     game['hotbar'] = Hotbar()
     game['hotbar']._refresh()
     game['selection'] = SelectionFrame()

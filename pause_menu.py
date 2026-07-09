@@ -41,6 +41,15 @@ class PauseMenu:
                y=-0.13, scale=(0.25, 0.06),
                color=color.red,
                on_click=self._quit, z=-1)
+        
+        import __main__
+        if __main__.game.get('hotbar'):
+            __main__.game['hotbar'].root.enabled = False
+        if __main__.game.get('crosshair'):
+            __main__.game['crosshair'].root.enabled = False
+        if __main__.game.get('selection'):
+            __main__.game['selection'].hide()
+
 
     def _resume(self):
         props = WindowProperties()
@@ -51,6 +60,13 @@ class PauseMenu:
 
         import __main__
         __main__.game['first_frame'] = True
+
+        # UI 復元
+        if __main__.game.get('hotbar'):
+            __main__.game['hotbar'].root.enabled = True
+        if __main__.game.get('crosshair'):
+            __main__.game['crosshair'].root.enabled = True
+        # selection は raycast側で自動制御されるので不要
 
         destroy(self.root)
         self.on_resume()
