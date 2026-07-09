@@ -1,0 +1,14 @@
+{
+  "sensitivity": 0.1625,
+  "fov": 90.0000011920929,
+  "render_distance": 20,
+  "bgm_volume": 0.3,
+  "se_volume": 0.30000001192092896,
+  "max_fps": 30,
+  "key_jump": "space",
+  "key_sneak": "shift",
+  "key_sprint": "alt",
+  "key_debug": ":",
+  "key_screenshot": "p",
+  "key_open_screenshots": ";"
+}
