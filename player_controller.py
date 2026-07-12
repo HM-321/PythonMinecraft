@@ -120,30 +120,48 @@ class PlayerController:
         current = camera.y
         camera.y += (target_y - current) * min(1, 15 * time.dt)
 
-
     def update_movement(self):
         p = self.entity
         forward = p.forward
         right = p.right
-        input_dir = (forward * (held_keys['w'] - held_keys['s'])
-                    + right * (held_keys['d'] - held_keys['a']))
+
+        # キーボード入力
+        kb_x = held_keys['d'] - held_keys['a']
+        kb_z = held_keys['w'] - held_keys['s']
+
+        # コントローラー入力
+        import __main__
+        c_x = 0
+        c_z = 0
+        if hasattr(__main__, 'controller') and __main__.controller.is_connected():
+            c_x = __main__.controller.move_x()
+            c_z = -__main__.controller.move_y()
+
+        input_x = kb_x + c_x
+        input_z = kb_z + c_z
+
+        input_dir = forward * input_z + right * input_x
         input_dir = Vec3(input_dir.x, 0, input_dir.z)
         if input_dir.length() > 0:
             input_dir = input_dir.normalized()
 
+        sneak = held_keys['left shift'] or held_keys['right shift']
+        sprint = held_keys['left control'] or held_keys['right control']
 
-        key_sneak = settings.get('key_sneak')
-        key_sprint = settings.get('key_sprint')
-        
-        sneak = held_keys.get(key_sneak, False) or held_keys.get('right ' + key_sneak.split()[-1], False)
-        sprint = held_keys.get(key_sprint, False) or held_keys.get('right ' + key_sprint.split()[-1], False)
+        if hasattr(__main__, 'controller') and __main__.controller.is_connected():
+            c = __main__.controller
+            # Bボタンでしゃがみ
+            if c.button_held(c.BTN_B):
+                sneak = True
+            # 左スティック押し込みでダッシュ
+            if c.button_held(c.BTN_LSTICK):
+                sprint = True
 
-
-        speed = MOVE_SPEED                        # ← config直参照
+        speed = MOVE_SPEED
         if sneak and self.gravity_on:
-            speed *= SNEAK_MUL                    # ← config直参照
+            speed *= SNEAK_MUL
         if sprint:
-            speed *= SPRINT_MUL                   # ← config直参照
+            speed *= SPRINT_MUL
 
         friction = FRICTION * 2 if (sneak and self.gravity_on) else FRICTION
         target = input_dir * speed
@@ -158,12 +176,20 @@ class PlayerController:
             self.velocity_h = Vec3(0, self.velocity_h.y, self.velocity_h.z)
         if not moved_z:
             self.velocity_h = Vec3(self.velocity_h.x, self.velocity_h.y, 0)
+
         self._update_vertical(sneak)
         self._update_camera_offset(sneak)
 
-
     def _update_vertical(self, sneak):
         p = self.entity
+        import __main__
+        
+        # ジャンプ入力（キーボード or Aボタン押しっぱなし = OK）
+        jump_input = held_keys[settings.get('key_jump')]
+        if hasattr(__main__, 'controller') and __main__.controller.is_connected():
+            if __main__.controller.button_held(__main__.controller.BTN_A):
+                jump_input = True
+
         if self.gravity_on:
             r = PLAYER_RADIUS - 0.02
             pts = [(0, 0), (r, 0), (-r, 0), (0, r), (0, -r),
@@ -177,17 +203,15 @@ class PlayerController:
 
             self.velocity_y -= GRAVITY * time.dt
 
-            # 頭上判定を移動前にやる
+            # 頭上判定
             if self.velocity_y > 0:
                 r = PLAYER_RADIUS - 0.02
                 corners = [(0, 0), (r, r), (-r, r), (r, -r), (-r, -r)]
-                # 今フレームで進む距離 + 小さいマージンだけチェック
                 check_dist = self.velocity_y * time.dt + 0.05
                 for ox, oz in corners:
                     origin = p.world_position + Vec3(ox, PLAYER_HEIGHT, oz)
                     hu = raycast(origin, Vec3(0, 1, 0), distance=check_dist, ignore=[p])
                     if hu.hit:
-                        # 頭を天井直下まで押し戻して停止
                         p.y = hu.world_point.y - PLAYER_HEIGHT - 0.01
                         self.velocity_y = 0
                         break
@@ -197,20 +221,20 @@ class PlayerController:
             if p.y <= ground_y:
                 p.y = ground_y
                 self.velocity_y = 0
-                if held_keys[settings.get('key_jump')] and not sneak:
+                if jump_input and not sneak:
                     self.velocity_y = JUMP_POWER
-
         else:
-            # 飛行モード（既存のまま）
             dy = time.dt * MOVE_SPEED
             r = PLAYER_RADIUS - 0.02
             corners = [(r, r), (-r, r), (r, -r), (-r, -r)]
-            if held_keys['space']:
+            
+            if jump_input:
                 if not any(raycast(
                         p.world_position + Vec3(ox, PLAYER_HEIGHT, oz),
                         Vec3(0, 1, 0), distance=dy + 0.05, ignore=[p]).hit
                         for ox, oz in corners):
                     p.y += dy
+            
             if sneak:
                 if not any(raycast(
                         p.world_position + Vec3(ox, 0.05, oz),
@@ -222,7 +246,7 @@ class PlayerController:
             p.position = self.spawn_pos
             self.velocity_y = 0
             self.velocity_h = Vec3(0, 0, 0)
-
+        
     def tick(self, dt):
         self.space_cd = max(0, self.space_cd - dt)
 

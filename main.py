@@ -12,6 +12,7 @@ from world import World
 from player_controller import PlayerController
 from menu import WorldSelectMenu
 from sound_manager import SoundManager
+from controller import Controller
 
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -30,6 +31,7 @@ window.position = (0, 0)
 
 sound_mgr = SoundManager()
 sound_mgr.start_bgm()
+controller = Controller()
 
 import options
 options.sound_mgr = sound_mgr
@@ -147,6 +149,64 @@ def _reload_app():
     if sound_mgr:
         sound_mgr.stop_bgm()
     os.execv(sys.executable, [sys.executable] + sys.argv)
+    
+def _try_place_block():
+    player = game['player']
+    hotbar = game['hotbar']
+    hit = raycast(camera.world_position, camera.forward,
+                  distance=REACH, ignore=[player.entity])
+    if not hit.hit or hit.entity not in game['world'].boxes:
+        return
+
+    target = hit.entity
+    hit_point = hit.world_point
+    target_pos = target.position
+    if getattr(target, 'custom_mesh', False):
+        target_pos = Vec3(target_pos.x, target_pos.y + 0.5, target_pos.z)
+    center_pos = Vec3(target_pos.x, target_pos.y - 0.5, target_pos.z)
+
+    diff = hit_point - center_pos
+    ax, ay, az = abs(diff.x), abs(diff.y), abs(diff.z)
+
+    if ax >= ay and ax >= az:
+        normal = Vec3(1 if diff.x > 0 else -1, 0, 0)
+    elif ay >= ax and ay >= az:
+        normal = Vec3(0, 1 if diff.y > 0 else -1, 0)
+    else:
+        normal = Vec3(0, 0, 1 if diff.z > 0 else -1)
+
+    new_pos = target_pos + normal
+
+    if player.block_overlaps(new_pos):
+        return
+    if player.is_above_standing_block(new_pos):
+        return
+
+    _, _, tex_info = BLOCK_TYPES[hotbar.selected]
+    is_rotatable = isinstance(tex_info, dict) and tex_info.get('rotatable', False)
+
+    if is_rotatable:
+        if abs(normal.y) > 0.5:
+            orientation = 'y'
+        elif abs(normal.x) > 0.5:
+            orientation = 'x'
+        else:
+            orientation = 'z'
+    else:
+        orientation = 'y'
+
+    game['world'].place_block(new_pos.x, new_pos.y, new_pos.z,
+                              hotbar.selected, orientation=orientation)
+    sound_mgr.play_place()
+
+
+def _try_break_block():
+    player = game['player']
+    hit = raycast(camera.world_position, camera.forward,
+                  distance=REACH, ignore=[player.entity])
+    if hit.hit and hit.entity in game['world'].boxes:
+        game['world'].remove_block(hit.entity)
+        sound_mgr.play_break()
 
 
 def _take_screenshot():
@@ -199,9 +259,8 @@ def _center():
     return w // 2, h // 2
 
 
+
 def update():
-
-
     if not game['started']:
         _limit_fps()
         return
@@ -219,6 +278,7 @@ def update():
         _limit_fps()
         return
 
+    # ===== マウス視点 =====
     md = app.win.getPointer(0)
     dx = md.getX() - cx
     dy = md.getY() - cy
@@ -227,12 +287,58 @@ def update():
     player.update_view(dx, dy)
     app.win.movePointer(0, cx, cy)
 
+    # ===== コントローラー =====
+    controller.update()
+    if controller.is_connected():
+        # 右スティックで視点
+        look_x = controller.look_x()
+        look_y = controller.look_y()
+        if look_x != 0 or look_y != 0:
+            sens = 300
+            player.yaw += look_x * sens * time.dt
+            player.pitch += look_y * sens * time.dt
+            player.pitch = max(-90, min(90, player.pitch))
+            player.entity.rotation_y = player.yaw
+            camera.rotation_x = player.pitch
+
+        hotbar = game['hotbar']
+
+        # ホットバー切替
+        if controller.button_pressed(Controller.BTN_L):
+            hotbar.cycle(-1)
+        if controller.button_pressed(Controller.BTN_R):
+            hotbar.cycle(1)
+
+        # ジャンプ/飛行切替（Aボタン）
+        if controller.button_pressed(Controller.BTN_A):
+            player.try_toggle_gravity()
+
+        # ポーズ（+ボタン）
+        if controller.button_pressed(Controller.BTN_PLUS):
+            _open_pause_menu()
+            _limit_fps()
+            return
+
+        # ブロック設置（ZL）
+        if controller.zl_just_pressed():
+            if game['click_cd'] <= 0:
+                game['click_cd'] = CLICK_INTERVAL
+                _try_place_block()
+
+        # ブロック破壊（ZR）
+        if controller.zr_just_pressed():
+            if game['click_cd'] <= 0:
+                game['click_cd'] = CLICK_INTERVAL
+                _try_break_block()
+
+    # ===== 通常のtick処理 =====
     player.tick(time.dt)
     game['click_cd'] = max(0, game['click_cd'] - time.dt)
     game['scroll_cd'] = max(0, game['scroll_cd'] - time.dt)
 
     player.update_movement()
 
+    # ===== 選択枠 =====
     hit = raycast(camera.world_position, camera.forward,
                   distance=REACH, ignore=[player.entity])
     if hit.hit and hit.entity in game['world'].boxes:
@@ -240,6 +346,7 @@ def update():
     else:
         game['selection'].hide()
 
+    # ===== 距離カリング =====
     game['cull_counter'] = (game['cull_counter'] + 1) % 5
     if game['cull_counter'] == 0:
         px, pz = player.entity.x, player.entity.z
@@ -258,7 +365,7 @@ def update():
     )
 
     _limit_fps()
-
+    
 
 def input(key):
     if not game['started']:
