@@ -2,9 +2,9 @@ import json
 import os
 from config import SETTINGS_PATH
 
-
 DEFAULT_SETTINGS = {
     'sensitivity': 0.2,
+    'controller_sensitivity': 300,
     'fov': 90,
     'render_distance': 20,
     'bgm_volume': 0.3,
@@ -16,8 +16,15 @@ DEFAULT_SETTINGS = {
     'key_debug': ':',
     'key_screenshot': 'p',
     'key_open_screenshots': ';',
+    # コントローラー
+    'ctrl_jump': 'A',
+    'ctrl_sneak': 'B',
+    'ctrl_pause': 'Y',        # Menuボタンないので Y に
+    'ctrl_dash': 'X',         # LS押込取れないので X に
+    'ctrl_fly_toggle': 'dpad_up',
+    'ctrl_hotbar_prev': 'LB',
+    'ctrl_hotbar_next': 'RB',
 }
-
 
 class Settings:
     def __init__(self):

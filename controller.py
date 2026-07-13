@@ -1,174 +1,149 @@
-import os
-os.environ['SDL_JOYSTICK_HIDAPI_SWITCH'] = '1'
-
-import pygame
+import hid
+import struct
+import threading
 
 
 class Controller:
-    # Switch Proコン ボタン番号（実測）
-    BTN_A = 0
-    BTN_B = 1
-    BTN_X = 2
-    BTN_Y = 3
-    BTN_L = 9
-    BTN_R = 10
-    BTN_MINUS = 4       # 実測で確認して修正
-    BTN_PLUS = 6        # 実測で確認して修正
-    BTN_LSTICK = 7      # 実測で確認して修正
-    BTN_RSTICK = 8      # 実測で確認して修正
-
-    # ZL/ZR はaxis
-    AXIS_ZL = 4         # 実測で確認して修正
-    AXIS_ZR = 5         # 実測で確認して修正
-
-    HAT_UP = (0, 1)
-    HAT_DOWN = (0, -1)
-    HAT_LEFT = (-1, 0)
-    HAT_RIGHT = (1, 0)
+    VID = 0x45e
+    PID = 0xb12
 
     def __init__(self):
-        if not pygame.get_init():
-            pygame.init()
-        pygame.joystick.init()
-
-        self.joy = None
-        self.deadzones = {
-            0: 0.5,
-            1: 0.5,
-            2: 0.5,
-            3: 0.5,
-        }
-        self.axis_offsets = {}
+        self.connected = False
+        self.state = None
+        self.dev = None
 
         self._prev_buttons = {}
-        self._prev_hat = (0, 0)
         self._button_pressed_this_frame = {}
-        self._hat_pressed_this_frame = None
 
-        self._prev_zl = False
-        self._prev_zr = False
-        self._zl_edge = False
-        self._zr_edge = False
+        self._prev_lt = False
+        self._prev_rt = False
+        self._lt_edge = False
+        self._rt_edge = False
+
+        self.deadzone_left = 0.15
+        self.deadzone_right = 0.15
 
         self._detect()
 
+        if self.connected:
+            self._thread = threading.Thread(target=self._read_loop, daemon=True)
+            self._thread.start()
+
     def _detect(self):
-        if pygame.joystick.get_count() > 0:
-            self.joy = pygame.joystick.Joystick(0)
-            self.joy.init()
-            print(f'Controller: {self.joy.get_name()}')
-            print(f'Buttons: {self.joy.get_numbuttons()}')
-            print(f'Axes: {self.joy.get_numaxes()}')
-            print(f'Hats: {self.joy.get_numhats()}')
-        else:
-            print('No controller')
+        try:
+            self.dev = hid.device()
+            self.dev.open(self.VID, self.PID)
+            self.dev.set_nonblocking(True)
+            self.connected = True
+            print(f'Controller: {self.dev.get_product_string()}')
+        except Exception as e:
+            print(f'No controller: {e}')
 
     def is_connected(self):
-        return self.joy is not None
+        return self.connected
 
-    def calibrate(self):
-        if not self.joy:
-            return
-        pygame.event.pump()
-        for i in range(self.joy.get_numaxes()):
-            self.axis_offsets[i] = self.joy.get_axis(i)
-        print(f'calibrated: {self.axis_offsets}')
+    def _read_loop(self):
+        while self.connected:
+            try:
+                data = self.dev.read(64)
+                if data and len(data) >= 18 and data[0] == 0x20:
+                    self._parse(data)
+            except Exception as e:
+                print(f'read error: {e}')
+                self.connected = False
+                break
+
+    def _parse(self, data):
+        raw = bytes(data)
+        b1 = data[4]
+        b2 = data[5]
+        self.state = {
+            'A': bool(b1 & 0x10),
+            'B': bool(b1 & 0x20),
+            'X': bool(b1 & 0x40),
+            'Y': bool(b1 & 0x80),
+            'LB': bool(b2 & 0x10),
+            'RB': bool(b2 & 0x20),
+            'dpad_up': bool(b2 & 0x01),
+            'dpad_down': bool(b2 & 0x02),
+            'dpad_left': bool(b2 & 0x04),
+            'dpad_right': bool(b2 & 0x08),
+            'LT': struct.unpack_from('<H', raw, 6)[0],
+            'RT': struct.unpack_from('<H', raw, 8)[0],
+            'LX': struct.unpack_from('<h', raw, 10)[0] / 32767.0,
+            'LY': struct.unpack_from('<h', raw, 12)[0] / 32767.0,
+            'RX': struct.unpack_from('<h', raw, 14)[0] / 32767.0,
+            'RY': struct.unpack_from('<h', raw, 16)[0] / 32767.0,
+        }
 
     def update(self):
-        try:
-            pygame.event.pump()
-        except pygame.error:
+        if not self.state:
             return
 
         self._button_pressed_this_frame = {}
-        self._hat_pressed_this_frame = None
-
-        if not self.joy:
-            return
-
-        # ボタンのエッジ検出
-        for i in range(self.joy.get_numbuttons()):
-            now = self.joy.get_button(i) == 1
-            prev = self._prev_buttons.get(i, False)
+        for key in ('A', 'B', 'X', 'Y', 'LB', 'RB',
+                    'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right'):
+            now = self.state.get(key, False)
+            prev = self._prev_buttons.get(key, False)
             if now and not prev:
-                self._button_pressed_this_frame[i] = True
-            self._prev_buttons[i] = now
+                self._button_pressed_this_frame[key] = True
+            self._prev_buttons[key] = now
 
-        # 十字キーのエッジ検出
-        if self.joy.get_numhats() > 0:
-            now_hat = self.joy.get_hat(0)
-            if now_hat != self._prev_hat and now_hat != (0, 0):
-                self._hat_pressed_this_frame = now_hat
-            self._prev_hat = now_hat
+        THRESH = 500
+        now_lt = self.state.get('LT', 0) > THRESH
+        self._lt_edge = now_lt and not self._prev_lt
+        self._prev_lt = now_lt
 
-        # ZL/ZR エッジ検出
-        now_zl = self._zl_held()
-        self._zl_edge = now_zl and not self._prev_zl
-        self._prev_zl = now_zl
+        now_rt = self.state.get('RT', 0) > THRESH
+        self._rt_edge = now_rt and not self._prev_rt
+        self._prev_rt = now_rt
 
-        now_zr = self._zr_held()
-        self._zr_edge = now_zr and not self._prev_zr
-        self._prev_zr = now_zr
+    def button_held(self, key):
+        if not self.state:
+            return False
+        return self.state.get(key, False)
 
-    def _axis(self, i):
-        if not self.joy or i >= self.joy.get_numaxes():
-            return 0
-        raw = self.joy.get_axis(i)
-        offset = self.axis_offsets.get(i, 0)
-        v = raw - offset
-        dz = self.deadzones.get(i, 0.2)
+    def button_pressed(self, key):
+        return self._button_pressed_this_frame.get(key, False)
+
+    def _apply_deadzone(self, v, dz):
         if abs(v) < dz:
             return 0
         sign = 1 if v > 0 else -1
-        v = sign * (abs(v) - dz) / (1 - dz)
-        return max(-1, min(1, v))
+        return sign * (abs(v) - dz) / (1 - dz)
 
     def move_x(self):
-        return self._axis(0)
+        if not self.state:
+            return 0
+        return self._apply_deadzone(self.state['LX'], self.deadzone_left)
 
     def move_y(self):
-        return self._axis(1)
+        if not self.state:
+            return 0
+        return -self._apply_deadzone(self.state['LY'], self.deadzone_left)
 
     def look_x(self):
-        return self._axis(2)
+        if not self.state:
+            return 0
+        return self._apply_deadzone(self.state['RX'], self.deadzone_right)
 
     def look_y(self):
-        return self._axis(3)
-
-    def button_held(self, i):
-        if not self.joy or i >= self.joy.get_numbuttons():
-            return False
-        return self.joy.get_button(i) == 1
-
-    def button_pressed(self, i):
-        return self._button_pressed_this_frame.get(i, False)
-
-    def hat_pressed(self, direction):
-        return self._hat_pressed_this_frame == direction
-
-    def get_hat(self):
-        if not self.joy or self.joy.get_numhats() == 0:
-            return (0, 0)
-        return self.joy.get_hat(0)
-
-    def _zl_held(self):
-        if not self.joy or self.AXIS_ZL >= self.joy.get_numaxes():
-            return False
-        return self.joy.get_axis(self.AXIS_ZL) > 0.5
-
-    def _zr_held(self):
-        if not self.joy or self.AXIS_ZR >= self.joy.get_numaxes():
-            return False
-        return self.joy.get_axis(self.AXIS_ZR) > 0.5
+        if not self.state:
+            return 0
+        return -self._apply_deadzone(self.state['RY'], self.deadzone_right)
 
     def zl_just_pressed(self):
-        return self._zl_edge
+        return self._lt_edge
 
     def zr_just_pressed(self):
-        return self._zr_edge
+        return self._rt_edge
 
     def zl_held(self):
-        return self._zl_held()
+        if not self.state:
+            return False
+        return self.state.get('LT', 0) > 500
 
     def zr_held(self):
-        return self._zr_held()
+        if not self.state:
+            return False
+        return self.state.get('RT', 0) > 500

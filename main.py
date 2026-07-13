@@ -287,14 +287,12 @@ def update():
     player.update_view(dx, dy)
     app.win.movePointer(0, cx, cy)
 
-    # ===== コントローラー =====
     controller.update()
     if controller.is_connected():
-        # 右スティックで視点
         look_x = controller.look_x()
         look_y = controller.look_y()
         if look_x != 0 or look_y != 0:
-            sens = 300
+            sens = settings.get('controller_sensitivity')
             player.yaw += look_x * sens * time.dt
             player.pitch += look_y * sens * time.dt
             player.pitch = max(-90, min(90, player.pitch))
@@ -303,29 +301,25 @@ def update():
 
         hotbar = game['hotbar']
 
-        # ホットバー切替
-        if controller.button_pressed(Controller.BTN_L):
+        if controller.button_pressed(settings.get('ctrl_hotbar_prev')):
             hotbar.cycle(-1)
-        if controller.button_pressed(Controller.BTN_R):
+        if controller.button_pressed(settings.get('ctrl_hotbar_next')):
             hotbar.cycle(1)
 
-        # ジャンプ/飛行切替（Aボタン）
-        if controller.button_pressed(Controller.BTN_A):
-            player.try_toggle_gravity()
+        if controller.button_pressed(settings.get('ctrl_fly_toggle')):
+            player.gravity_on = not player.gravity_on
+            player.velocity_y = 0
 
-        # ポーズ（+ボタン）
-        if controller.button_pressed(Controller.BTN_PLUS):
+        if controller.button_pressed(settings.get('ctrl_pause')):
             _open_pause_menu()
             _limit_fps()
             return
 
-        # ブロック設置（ZL）
         if controller.zl_just_pressed():
             if game['click_cd'] <= 0:
                 game['click_cd'] = CLICK_INTERVAL
                 _try_place_block()
 
-        # ブロック破壊（ZR）
         if controller.zr_just_pressed():
             if game['click_cd'] <= 0:
                 game['click_cd'] = CLICK_INTERVAL

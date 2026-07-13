@@ -119,7 +119,7 @@ class PlayerController:
         # 補間で滑らかに
         current = camera.y
         camera.y += (target_y - current) * min(1, 15 * time.dt)
-
+        
     def update_movement(self):
         p = self.entity
         forward = p.forward
@@ -150,11 +150,9 @@ class PlayerController:
 
         if hasattr(__main__, 'controller') and __main__.controller.is_connected():
             c = __main__.controller
-            # Bボタンでしゃがみ
-            if c.button_held(c.BTN_B):
+            if c.button_held(settings.get('ctrl_sneak')):
                 sneak = True
-            # 左スティック押し込みでダッシュ
-            if c.button_held(c.BTN_LSTICK):
+            if c.button_held(settings.get('ctrl_dash')):
                 sprint = True
 
         speed = MOVE_SPEED
@@ -183,12 +181,12 @@ class PlayerController:
     def _update_vertical(self, sneak):
         p = self.entity
         import __main__
-        
-        # ジャンプ入力（キーボード or Aボタン押しっぱなし = OK）
+
         jump_input = held_keys[settings.get('key_jump')]
         if hasattr(__main__, 'controller') and __main__.controller.is_connected():
-            if __main__.controller.button_held(__main__.controller.BTN_A):
+            if __main__.controller.button_held(settings.get('ctrl_jump')):
                 jump_input = True
+
 
         if self.gravity_on:
             r = PLAYER_RADIUS - 0.02
