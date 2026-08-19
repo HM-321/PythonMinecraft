@@ -1,4 +1,5 @@
 import os
+import shutil
 import time as _pytime
 from ursina import *
 from panda3d.core import WindowProperties
@@ -69,7 +70,7 @@ game = {
 }
 
 
-def start_game(save_path, is_new):
+def start_game(save_path, is_new, use_template=False):
     sound_mgr.stop_bgm()
     props = WindowProperties()
     props.setCursorHidden(True)
@@ -87,7 +88,19 @@ def start_game(save_path, is_new):
     game['world'] = World(save_path)
 
     if is_new:
-        game['world'].generate_flat()
+        if use_template:
+            template_path = os.path.join(SAVE_DIR, 'Template.json')
+            if os.path.exists(template_path):
+                shutil.copyfile(template_path, save_path)
+                game['world'].load(game['player'].entity)
+            else:
+                game['world'].generate_flat()
+        else:
+            game['world'].generate_flat()
+        game['player'].yaw = 0
+        game['player'].pitch = -17.5
+        game['player'].entity.rotation_y = 0
+        camera.rotation_x = -17.5
     else:
         game['world'].load(game['player'].entity)
 
@@ -289,6 +302,8 @@ def update():
 
     controller.update()
     if controller.is_connected():
+        if controller.button_pressed(settings.get('ctrl_jump')):
+            player.try_toggle_gravity()
         look_x = controller.look_x()
         look_y = controller.look_y()
         if look_x != 0 or look_y != 0:

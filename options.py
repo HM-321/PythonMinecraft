@@ -14,116 +14,142 @@ class OptionsScreen:
         self.pending = {}
         self._capturing_key = None
         self._capturing_btn = None
+        self._capturing_is_ctrl = False
 
-
-
-        # 背景
+        # 背景（全画面）
         Entity(parent=self.root, model='quad',
-               color=color.rgb(20, 40, 70),
-               scale=(3, 1.8),
-               z=1)
+            color=color.rgb(20, 40, 70),
+            scale=(100, 100),
+            z=1)
 
+        # タイトル
         Text(parent=self.root, text='OPTIONS',
-             origin=(0, 0), y=0.42, scale=2.5, color=color.white)
+            origin=(0, 0), y=0.42, scale=2.5, color=color.white)
 
         self.sliders = {}
         step = 0.08
 
-        # 左列: スライダー
+        # ===== 左列: スライダー =====
         y = 0.28
-        self._make_slider('Sensitivity', 'sensitivity', 0.05, 0.5, y, x_offset=-0.35)
+        self._make_slider('Sensitivity', 'sensitivity', 0.05, 0.5, y, x_offset=-0.45)
         y -= step
-        self._make_slider('FOV', 'fov', 60, 110, y, x_offset=-0.35)
+        self._make_slider('Ctrl Sens', 'controller_sensitivity', 100, 800, y, x_offset=-0.45)
         y -= step
-        self._make_slider('Render Dist', 'render_distance', 10, 40, y, x_offset=-0.35)
+        self._make_slider('FOV', 'fov', 60, 110, y, x_offset=-0.45)
         y -= step
-        self._make_slider('BGM Vol', 'bgm_volume', 0.0, 1.0, y, x_offset=-0.35)
+        self._make_slider('Render Dist', 'render_distance', 10, 40, y, x_offset=-0.45)
         y -= step
-        self._make_slider('SE Vol', 'se_volume', 0.0, 1.0, y, x_offset=-0.35)
+        self._make_slider('BGM Vol', 'bgm_volume', 0.0, 1.0, y, x_offset=-0.45)
         y -= step
-        self._make_slider('Max FPS', 'max_fps', 20, 120, y, x_offset=-0.35)
+        self._make_slider('SE Vol', 'se_volume', 0.0, 1.0, y, x_offset=-0.45)
+        y -= step
+        self._make_slider('Max FPS', 'max_fps', 20, 120, y, x_offset=-0.45)
 
-        # 右列: キー割当
+        # ===== 中列: キーボード =====
         y = 0.28
         Text(parent=self.root, text='-- Keys --',
-             origin=(0, 0), position=(0.35, y + 0.05),
-             scale=1.0, color=color.yellow)
+            origin=(0, 0), position=(0, y + 0.06), scale=0.9, color=color.yellow)
+        self._make_key_bind('Jump', 'key_jump', y, x_offset=0)
+        y -= step
+        self._make_key_bind('Sneak', 'key_sneak', y, x_offset=0)
+        y -= step
+        self._make_key_bind('Sprint', 'key_sprint', y, x_offset=0)
+        y -= step
+        self._make_key_bind('Debug', 'key_debug', y, x_offset=0)
+        y -= step
+        self._make_key_bind('Screenshot', 'key_screenshot', y, x_offset=0)
+        y -= step
+        self._make_key_bind('SS Folder', 'key_open_screenshots', y, x_offset=0)
 
-        self._make_key_bind('Jump', 'key_jump', y, x_offset=0.35)
+        # ===== 右列: コントローラー =====
+        y = 0.28
+        Text(parent=self.root, text='-- Controller --',
+            origin=(0, 0), position=(0.45, y + 0.06), scale=0.9, color=color.orange)
+        self._make_ctrl_bind('Jump', 'ctrl_jump', y, x_offset=0.45)
         y -= step
-        self._make_key_bind('Sneak', 'key_sneak', y, x_offset=0.35)
+        self._make_ctrl_bind('Sneak', 'ctrl_sneak', y, x_offset=0.45)
         y -= step
-        self._make_key_bind('Sprint', 'key_sprint', y, x_offset=0.35)
+        self._make_ctrl_bind('Dash', 'ctrl_dash', y, x_offset=0.45)
         y -= step
-        self._make_key_bind('Debug', 'key_debug', y, x_offset=0.35)
+        self._make_ctrl_bind('Pause', 'ctrl_pause', y, x_offset=0.45)
         y -= step
-        self._make_key_bind('Screenshot', 'key_screenshot', y, x_offset=0.35)
+        self._make_ctrl_bind('Fly', 'ctrl_fly_toggle', y, x_offset=0.45)
         y -= step
-        self._make_key_bind('SS Folder', 'key_open_screenshots', y, x_offset=0.35)
+        self._make_ctrl_bind('HotbarL', 'ctrl_hotbar_prev', y, x_offset=0.45)
+        y -= step
+        self._make_ctrl_bind('HotbarR', 'ctrl_hotbar_next', y, x_offset=0.45)
 
+        # ===== ボタン =====
         Button(parent=self.root, text='BACK',
-               position=(-0.15, -0.4), scale=(0.15, 0.05),
-               color=color.gray,
-               on_click=self._back)
+            position=(-0.15, -0.42), scale=(0.15, 0.05),
+            color=color.gray, on_click=self._back)
         Button(parent=self.root, text='SAVE',
-               position=(0.15, -0.4), scale=(0.15, 0.05),
-               color=color.azure,
-               on_click=self._save)
-        
-        
-        import __main__
-        from ursina import invoke
-        
-        def _check_size(label):
-            p = __main__.app.win.getProperties()
-            print(f'>>> {label}: {p.getXSize()}x{p.getYSize()}')
-        
-        _check_size('Options opened')
-        invoke(lambda: _check_size('0.5s later'), delay=0.5)
-        invoke(lambda: _check_size('1s later'), delay=1.0)
-        invoke(lambda: _check_size('2s later'), delay=2.0)
+            position=(0.15, -0.42), scale=(0.15, 0.05),
+            color=color.azure, on_click=self._save)
 
+        # コントローラー入力監視
+        self._updater = Entity(parent=self.root)
+        self._updater.update = self._monitor_controller
 
     def _make_slider(self, label, key, min_v, max_v, y, x_offset=0):
+        val = settings.get(key)
+        if val is None:
+            val = min_v
+
         Text(parent=self.root, text=label,
-             position=(x_offset - 0.25, y), origin=(-0.5, 0),
-             scale=0.9, color=color.white)
+            position=(x_offset - 0.16, y), origin=(-0.5, 0),
+            scale=0.7, color=color.white)
 
         sl = Slider(
             parent=self.root,
             min=min_v, max=max_v,
-            default=settings.get(key),
-            position=(x_offset + 0.05, y),
-            scale=0.25,
+            default=val,
+            position=(x_offset - 0.02, y),
+            scale=0.12,
             step=(max_v - min_v) / 40,
         )
         sl.on_value_changed = lambda k=key, s=sl: self._on_change(k, s)
         self.sliders[key] = sl
 
-        val = settings.get(key)
         val_str = f'{int(val)}' if key == 'max_fps' else f'{val:.2f}'
         val_text = Text(parent=self.root, text=val_str,
-                        position=(x_offset + 0.22, y), origin=(-0.5, 0),
-                        scale=0.9, color=color.light_gray)
+                        position=(x_offset + 0.13, y), origin=(-0.5, 0),
+                        scale=0.7, color=color.light_gray)
         sl._val_text = val_text
 
     def _make_key_bind(self, label, key, y, x_offset=0):
         Text(parent=self.root, text=label,
-             position=(x_offset - 0.15, y), origin=(-0.5, 0),
-             scale=0.9, color=color.white)
+            position=(x_offset - 0.16, y), origin=(-0.5, 0),
+            scale=0.7, color=color.white)
 
         current = settings.get(key)
         btn = Button(
             parent=self.root,
-            text=current,
-            position=(x_offset + 0.1, y),
-            scale=(0.18, 0.045),
+            text=str(current),
+            position=(x_offset + 0.08, y),
+            scale=(0.15, 0.045),
             color=color.dark_gray,
         )
         btn.on_click = lambda: self._start_key_capture(key, btn)
         self.sliders[key] = btn
+    def _make_ctrl_bind(self, label, key, y, x_offset=0):
+        Text(parent=self.root, text=label,
+            position=(x_offset - 0.16, y), origin=(-0.5, 0),
+            scale=0.7, color=color.white)
+
+        current = settings.get(key)
+        btn = Button(
+            parent=self.root,
+            text=str(current),
+            position=(x_offset + 0.08, y),
+            scale=(0.15, 0.045),
+            color=color.dark_gray,
+        )
+        btn.on_click = lambda: self._start_ctrl_capture(key, btn)
+        self.sliders[key] = btn
 
     def _start_key_capture(self, key, btn):
+        self._capturing_is_ctrl = False # ← 追加
         if self._capturing_key and self._capturing_btn:
             prev_val = self.pending.get(
                 self._capturing_key, settings.get(self._capturing_key))
@@ -156,6 +182,43 @@ class OptionsScreen:
 
         if key == 'escape':
             self._back()
+
+    def _start_ctrl_capture(self, key, btn):
+        if self._capturing_key and self._capturing_btn:
+            prev = self.pending.get(self._capturing_key, settings.get(self._capturing_key))
+            self._capturing_btn.text = str(prev)
+            self._capturing_btn.color = color.dark_gray
+
+        btn.text = 'press...'
+        btn.color = color.orange
+        self._capturing_key = key
+        self._capturing_btn = btn
+        self._capturing_is_ctrl = True
+        
+    def _monitor_controller(self):
+        if not self._capturing_key:
+            return
+        if not getattr(self, '_capturing_is_ctrl', False):
+            return
+
+        import __main__
+        if not hasattr(__main__, 'controller'):
+            return
+        c = __main__.controller
+        if not c.is_connected() or not c.state:
+            return
+
+        # ボタン検出
+        for key in ('A', 'B', 'X', 'Y', 'LB', 'RB',
+                    'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right'):
+            if c.state.get(key, False):
+                self.pending[self._capturing_key] = key
+                self._capturing_btn.text = key
+                self._capturing_btn.color = color.dark_gray
+                self._capturing_key = None
+                self._capturing_btn = None
+                self._capturing_is_ctrl = False
+                return
 
     def _on_change(self, key, slider):
         v = slider.value

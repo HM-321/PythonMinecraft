@@ -9,7 +9,7 @@ BLOCK_TYPES = [
     ('Dirt',  color.white, 'textures/dirt.png'),
     ('Stone', color.white, 'textures/stone.png'),
     ('Wood',  color.white, 'textures/wood.png'),
-    ('Leaf',  color.white, 'textures/leaf.png'),
+    ('Ice',   color.white, 'textures/ice.png'),
     ('Sand',  color.white, 'textures/sand.png'),
     ('Brick', color.white, 'textures/brick.png'),
     ('Glass', color.rgba(180, 220, 240, 50), None),

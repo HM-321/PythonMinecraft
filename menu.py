@@ -9,6 +9,7 @@ class WorldSelectMenu:
     def __init__(self, on_select):
         self.on_select = on_select
         self.root = Entity(parent=camera.ui)
+        self.use_template = True
 
         Text(parent=self.root, text='SELECT WORLD',
              origin=(0, 0), y=0.4, scale=2.5, color=color.white)
@@ -40,6 +41,14 @@ class WorldSelectMenu:
         self.input = InputField(parent=self.root, y=y)
         y -= 0.08
 
+        self.template_toggle = Button(
+            parent=self.root, text='TEMPLATE: ON',
+            y=y, scale=(0.32, 0.05),
+            color=color.azure,
+            on_click=self._toggle_template,
+        )
+        y -= 0.08
+
         Button(
             parent=self.root, text='CREATE',
             y=y, scale=(0.25, 0.05),
@@ -66,18 +75,42 @@ class WorldSelectMenu:
             self.on_select(path, is_new=False)
         return fn
 
+    def _toggle_template(self):
+        self.use_template = not self.use_template
+        self.template_toggle.text = (
+            'TEMPLATE: ON' if self.use_template else 'TEMPLATE: OFF'
+        )
+        self.template_toggle.color = (
+            color.azure if self.use_template else color.dark_gray
+        )
+
     def _create(self):
         name = self.input.text.strip()
         if not name:
-            return
-        safe = ''.join(c for c in name if c.isalnum() or c in '_-')
-        if not safe:
-            return
+            safe = self._next_default_world_name()
+        else:
+            safe = ''.join(c for c in name if c.isalnum() or c in '_-')
+            if not safe:
+                return
         path = os.path.join(SAVE_DIR, f'{safe}.json')
         if os.path.exists(path):
             return
         self.close()
-        self.on_select(path, is_new=True)
+        self.on_select(path, is_new=True, use_template=self.use_template)
+
+    @staticmethod
+    def _next_default_world_name():
+        base_name = '新規ワールド'
+        if not os.path.exists(os.path.join(SAVE_DIR, f'{base_name}.json')):
+            return base_name
+
+        number = 1
+        while True:
+            name = f'{base_name}（{number}）'
+            path = os.path.join(SAVE_DIR, f'{name}.json')
+            if not os.path.exists(path):
+                return name
+            number += 1
 
     def close(self):
         destroy(self.root)
