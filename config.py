@@ -4,6 +4,7 @@ import json
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVE_DIR = os.path.join(BASE_DIR, 'saves')
+TEMPLATE_PATH = os.path.join(BASE_DIR, 'Template.json')
 SOUND_DIR = os.path.join(BASE_DIR, 'sounds')
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
 SCREENSHOTS_DIR = os.path.join(BASE_DIR, 'screenshots')

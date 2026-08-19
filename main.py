@@ -5,7 +5,7 @@ from ursina import *
 from panda3d.core import WindowProperties
 
 from settings import settings
-from config import SAVE_DIR, WORLD_SIZE, REACH
+from config import SAVE_DIR, TEMPLATE_PATH, WORLD_SIZE, REACH
 from config import CLICK_INTERVAL, SCROLL_INTERVAL
 from block_types import BLOCK_TYPES
 from ui import Crosshair, Hotbar, SelectionFrame, DebugOverlay
@@ -89,9 +89,8 @@ def start_game(save_path, is_new, use_template=False):
 
     if is_new:
         if use_template:
-            template_path = os.path.join(SAVE_DIR, 'Template.json')
-            if os.path.exists(template_path):
-                shutil.copyfile(template_path, save_path)
+            if os.path.exists(TEMPLATE_PATH):
+                shutil.copyfile(TEMPLATE_PATH, save_path)
                 game['world'].load(game['player'].entity)
             else:
                 game['world'].generate_flat()

@@ -34,5 +34,6 @@ htmlcov/
 
 # Project-specific
 saves/
+!Template.json
 screenshots/
 settings.json
