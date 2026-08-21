@@ -1,6 +1,7 @@
 import hid
 import struct
 import threading
+import time
 
 
 class Controller:
@@ -19,15 +20,15 @@ class Controller:
         self._prev_rt = False
         self._lt_edge = False
         self._rt_edge = False
+        self._state_lock = threading.Lock()
 
         self.deadzone_left = 0.15
         self.deadzone_right = 0.15
 
         self._detect()
 
-        if self.connected:
-            self._thread = threading.Thread(target=self._read_loop, daemon=True)
-            self._thread.start()
+        self._thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._thread.start()
 
     def _detect(self):
         try:
@@ -38,26 +39,41 @@ class Controller:
             print(f'Controller: {self.dev.get_product_string()}')
         except Exception as e:
             print(f'No controller: {e}')
+            self.dev = None
+            self.connected = False
 
     def is_connected(self):
         return self.connected
 
     def _read_loop(self):
-        while self.connected:
+        while True:
+            if not self.connected:
+                self._detect()
+                if not self.connected:
+                    time.sleep(1)
+                    continue
+
             try:
                 data = self.dev.read(64)
                 if data and len(data) >= 18 and data[0] == 0x20:
                     self._parse(data)
+                elif not data:
+                    time.sleep(0.001)
             except Exception as e:
                 print(f'read error: {e}')
                 self.connected = False
-                break
+                with self._state_lock:
+                    self.state = None
+                try:
+                    self.dev.close()
+                except Exception:
+                    pass
 
     def _parse(self, data):
         raw = bytes(data)
         b1 = data[4]
         b2 = data[5]
-        self.state = {
+        state = {
             'A': bool(b1 & 0x10),
             'B': bool(b1 & 0x20),
             'X': bool(b1 & 0x40),
@@ -75,26 +91,30 @@ class Controller:
             'RX': struct.unpack_from('<h', raw, 14)[0] / 32767.0,
             'RY': struct.unpack_from('<h', raw, 16)[0] / 32767.0,
         }
+        with self._state_lock:
+            self.state = state
 
     def update(self):
-        if not self.state:
+        with self._state_lock:
+            state = self.state.copy() if self.state else None
+        if not state:
             return
 
         self._button_pressed_this_frame = {}
         for key in ('A', 'B', 'X', 'Y', 'LB', 'RB',
                     'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right'):
-            now = self.state.get(key, False)
+            now = state.get(key, False)
             prev = self._prev_buttons.get(key, False)
             if now and not prev:
                 self._button_pressed_this_frame[key] = True
             self._prev_buttons[key] = now
 
         THRESH = 500
-        now_lt = self.state.get('LT', 0) > THRESH
+        now_lt = state.get('LT', 0) > THRESH
         self._lt_edge = now_lt and not self._prev_lt
         self._prev_lt = now_lt
 
-        now_rt = self.state.get('RT', 0) > THRESH
+        now_rt = state.get('RT', 0) > THRESH
         self._rt_edge = now_rt and not self._prev_rt
         self._prev_rt = now_rt
 

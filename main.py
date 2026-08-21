@@ -150,7 +150,41 @@ def _resume_game():
 def _save_and_quit():
     game['world'].save(game['player'].entity)
     sound_mgr.stop_bgm()
-    application.quit()
+
+    if game.get('pause_menu'):
+        game['pause_menu'] = None
+    for key in ('crosshair', 'hotbar', 'selection', 'debug'):
+        obj = game.get(key)
+        if obj:
+            destroy(getattr(obj, 'root', obj))
+
+    for block in game['world'].boxes:
+        destroy(block)
+    destroy(game['player'].entity)
+
+    props = WindowProperties()
+    props.setCursorHidden(False)
+    app.win.requestProperties(props)
+    mouse.visible = True
+    mouse.locked = False
+    camera.parent = scene
+    camera.position = (0, 0, 0)
+    camera.rotation = (0, 0, 0)
+
+    game.update({
+        'started': False,
+        'paused': False,
+        'world': None,
+        'player': None,
+        'pause_menu': None,
+        'crosshair': None,
+        'hotbar': None,
+        'selection': None,
+        'debug': None,
+        'first_frame': True,
+    })
+    sound_mgr.start_bgm()
+    _show_menu()
 
 
 def _reload_app():
@@ -282,6 +316,7 @@ def update():
         _limit_fps()
         return
 
+    controller.update()
     game['esc_cd'] = max(0, game['esc_cd'] - time.dt)
 
     if game['paused']:
@@ -304,7 +339,6 @@ def update():
     player.update_view(dx, dy)
     app.win.movePointer(0, cx, cy)
 
-    controller.update()
     if controller.is_connected():
         if controller.button_pressed(settings.get('ctrl_jump')):
             player.try_toggle_gravity()
