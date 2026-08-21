@@ -14,6 +14,7 @@ from player_controller import PlayerController
 from menu import WorldSelectMenu
 from sound_manager import SoundManager
 from controller import Controller
+from block_particles import BlockParticles
 
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -33,6 +34,7 @@ window.position = (0, 0)
 sound_mgr = SoundManager()
 sound_mgr.start_bgm()
 controller = Controller()
+block_particles = BlockParticles()
 
 import options
 options.sound_mgr = sound_mgr
@@ -217,6 +219,7 @@ def _try_break_block():
     hit = raycast(camera.world_position, camera.forward,
                   distance=REACH, ignore=[player.entity])
     if hit.hit and hit.entity in game['world'].boxes:
+        block_particles.burst(hit.entity)
         game['world'].remove_block(hit.entity)
         sound_mgr.play_break()
 
@@ -273,6 +276,8 @@ def _center():
 
 
 def update():
+    block_particles.update()
+
     if not game['started']:
         _limit_fps()
         return
@@ -452,6 +457,7 @@ def input(key):
     target = hit.entity
 
     if key == 'left mouse down':
+        block_particles.burst(target)
         game['world'].remove_block(target)
         sound_mgr.play_break()
 

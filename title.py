@@ -23,17 +23,12 @@ class TitleScreen:
                z=1)
 
         # タイトル
-        Text(parent=self.root, text='MINECRAFT',
+        Text(parent=self.root, text='マイクラもどき',
              origin=(0, 0), y=0.25, scale=5, color=color.white)
 
         Text(parent=self.root, text='Python + Ursina',
              origin=(0, 0), y=0.13, scale=1.2, color=color.light_gray)
 
-        Text(parent=self.root,
-             text=('WASD:移動  Space:ジャンプ/上昇  Shift:スニーク/下降\n'
-                   'マウス左:破壊  右:設置  ホイール:切替  :デバッグ\n'
-                   'Space2連打:飛行切替  Esc:ポーズ  P:スクショ'),
-             origin=(0, 0), y=-0.02, scale=0.9, color=color.light_gray)
 
         Button(parent=self.root, text='START',
                y=-0.18, scale=(0.2, 0.06),
