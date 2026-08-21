@@ -164,12 +164,12 @@ class OptionsScreen:
     def _input(self, key):
         if self._capturing_key:
             if key == 'escape':
-                val = self.pending.get(
-                    self._capturing_key, settings.get(self._capturing_key))
-                self._capturing_btn.text = val
+                self.pending[self._capturing_key] = None
+                self._capturing_btn.text = 'None'
                 self._capturing_btn.color = color.dark_gray
                 self._capturing_key = None
                 self._capturing_btn = None
+                self._capturing_is_ctrl = False
                 return
             if key.endswith(' up') or key.endswith(' hold'):
                 return

@@ -22,15 +22,14 @@ class PlayerController:
         self.spawn_pos = spawn_pos
 
     def block_overlaps(self, pos):
-        XZ = 0.11
         p = self.entity
         return (
-            p.x - PLAYER_RADIUS - XZ < pos.x + 0.5 and
-            p.x + PLAYER_RADIUS + XZ > pos.x - 0.5 and
+            p.x - PLAYER_RADIUS < pos.x + 0.5 and
+            p.x + PLAYER_RADIUS > pos.x - 0.5 and
             p.y < pos.y and
             p.y + PLAYER_HEIGHT > pos.y - 1 and
-            p.z - PLAYER_RADIUS - XZ < pos.z + 0.5 and
-            p.z + PLAYER_RADIUS + XZ > pos.z - 0.5
+            p.z - PLAYER_RADIUS < pos.z + 0.5 and
+            p.z + PLAYER_RADIUS > pos.z - 0.5
         )
 
     def is_above_standing_block(self, pos):
@@ -182,7 +181,8 @@ class PlayerController:
         p = self.entity
         import __main__
 
-        jump_input = held_keys[settings.get('key_jump')]
+        jump_key = settings.get('key_jump')
+        jump_input = bool(jump_key and held_keys[jump_key])
         if hasattr(__main__, 'controller') and __main__.controller.is_connected():
             if __main__.controller.button_held(settings.get('ctrl_jump')):
                 jump_input = True
