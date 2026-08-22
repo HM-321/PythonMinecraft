@@ -2,7 +2,8 @@ from ursina import Entity, Vec3, camera, raycast, held_keys, time
 from settings import settings
 from config import (PLAYER_HEIGHT, PLAYER_RADIUS,
                     MOVE_SPEED, SNEAK_MUL, SPRINT_MUL, FRICTION,
-                    GRAVITY, JUMP_POWER, SENSITIVITY, DOUBLE_TAP)
+                    GRAVITY, JUMP_POWER, SENSITIVITY, DOUBLE_TAP,
+                    WORLD_SIZE)
 
 
 class PlayerController:
@@ -219,7 +220,7 @@ class PlayerController:
             if p.y <= ground_y:
                 p.y = ground_y
                 self.velocity_y = 0
-                if jump_input and not sneak:
+                if jump_input:
                     self.velocity_y = JUMP_POWER
         else:
             dy = time.dt * MOVE_SPEED
@@ -241,9 +242,39 @@ class PlayerController:
                     p.y -= dy
 
         if p.y < -30:
-            p.position = self.spawn_pos
+            p.position = self._find_safe_respawn()
             self.velocity_y = 0
             self.velocity_h = Vec3(0, 0, 0)
+
+    def _find_safe_respawn(self):
+        import __main__
+
+        world = getattr(__main__, 'game', {}).get('world')
+        if not world or not world.boxes:
+            return self.spawn_pos
+
+        columns = {}
+        for block in world.boxes:
+            key = (round(block.x), round(block.z))
+            top_y = block.y + 0.5 if getattr(block, 'custom_mesh', False) else block.y
+            columns.setdefault(key, []).append(top_y)
+
+        origin_x = round(self.entity.x)
+        origin_z = round(self.entity.z)
+        max_radius = max(WORLD_SIZE, 32)
+
+        for radius in range(max_radius + 1):
+            for dx in range(-radius, radius + 1):
+                for dz in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dz)) != radius:
+                        continue
+                    column = columns.get((origin_x + dx, origin_z + dz))
+                    if column:
+                        ground_y = max(column)
+                        return Vec3(origin_x + dx, ground_y,
+                                    origin_z + dz)
+
+        return self.spawn_pos
         
     def tick(self, dt):
         self.space_cd = max(0, self.space_cd - dt)
