@@ -22,6 +22,8 @@ MinecraftBuildServer.exe --world saves\\新規ワールド.json
 
 Windows Defender Firewallの確認が表示されたら、プライベートネットワークで通信を許可します。表示されない場合は、Windowsのファイアウォール設定で `MinecraftBuildServer.exe` のTCP通信を許可してください。
 
+サーバー画面の「新しいワールド」ボタンを押すと、現在のワールドを保存して新しい平地ワールドに切り替えます。接続中のクライアントにも新しいワールドが反映されます。
+
 ## Macから参加
 
 MacとWindows PCを同じWi-FiまたはLANに接続します。Windows PCのLAN IP（例: `192.168.1.20`）を確認し、Mac版アプリのマルチプレイ画面へ入力します。

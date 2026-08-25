@@ -108,6 +108,11 @@ class MinecraftBuildServer:
         self.next_player_id = 1
 
     def serve_forever(self):
+        network_thread = threading.Thread(target=self._serve_network, daemon=True)
+        network_thread.start()
+        self._run_control_panel()
+
+    def _serve_network(self):
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.listener.bind((self.host, self.port))
@@ -142,6 +147,73 @@ class MinecraftBuildServer:
                     last_save = time.monotonic()
         finally:
             self.shutdown()
+
+    def _run_control_panel(self):
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+        except ImportError:
+            print('tkinter is unavailable; press Ctrl+C to stop the server')
+            try:
+                while not self.stop_event.wait(1.0):
+                    pass
+            except KeyboardInterrupt:
+                self.shutdown()
+            return
+
+        root = tk.Tk()
+        root.title('MinecraftBuild Server')
+        root.geometry('360x180')
+        root.resizable(False, False)
+        tk.Label(root, text=f'LAN server : {self.port}',
+                 font=('Arial', 14)).pack(pady=(18, 4))
+        player_label = tk.Label(root, text='Players: 0 / 2')
+        player_label.pack(pady=4)
+
+        def refresh():
+            if self.stop_event.is_set():
+                root.destroy()
+                return
+            with self.sessions_lock:
+                count = len(self.sessions)
+            player_label.config(text=f'Players: {count} / {MAX_PLAYERS}')
+            root.after(500, refresh)
+
+        def reset_world():
+            if messagebox.askyesno(
+                    'New world',
+                    'Save the current world and create a new flat world?'):
+                self.create_new_world()
+
+        tk.Button(root, text='新しいワールド', command=reset_world,
+                  width=22, height=2).pack(pady=12)
+        def close_panel():
+            self.shutdown()
+            root.destroy()
+
+        root.protocol('WM_DELETE_WINDOW', close_panel)
+        root.after(0, refresh)
+        root.mainloop()
+
+    def create_new_world(self):
+        self.world.save()
+        self.world.blocks = {
+            (x, 0, z): [0, 'y']
+            for x in range(WORLD_SIZE)
+            for z in range(WORLD_SIZE)
+        }
+        self.world.save()
+        with self.sessions_lock:
+            sessions = list(self.sessions.values())
+        for session in sessions:
+            try:
+                session.send({
+                    'type': 'world_reset',
+                    'blocks': self.world.snapshot(),
+                })
+            except OSError:
+                self._remove_session(session)
+        print('new world created and sent to connected players')
 
     def shutdown(self):
         if self.stop_event.is_set() and self.listener is None:

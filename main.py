@@ -214,6 +214,8 @@ def _process_network_events():
         message_type = message.get('type')
         if message_type == 'world_snapshot' and not game['started']:
             _start_network_game(message)
+        elif message_type == 'world_reset' and game.get('network_client'):
+            _reset_network_world(message.get('blocks', []))
         elif message_type == 'player_join':
             _update_remote_player(message.get('player', {}))
         elif message_type == 'player_state':
@@ -267,6 +269,19 @@ def _apply_network_block_change(message):
         world.place_block(*position, message.get('block_id', 0),
                           orientation=message.get('orientation', 'y'))
         sound_mgr.play_place()
+
+
+def _reset_network_world(blocks):
+    world = game.get('world')
+    if not world:
+        return
+    for block in world.boxes:
+        destroy(block)
+    world.boxes.clear()
+    for block in blocks:
+        if len(block) >= 4:
+            world.place_block(*block[:3], block[3],
+                              orientation=block[4] if len(block) > 4 else 'y')
     
 
 
