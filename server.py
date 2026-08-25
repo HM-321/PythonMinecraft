@@ -205,7 +205,10 @@ class MinecraftBuildServer:
 
         def start_server():
             name = world_name.get().strip()
-            if name:
+            if not name:
+                selected_path = self._next_world_path(saves_dir)
+                self._create_selected_world(selected_path, use_template.get())
+            else:
                 safe_name = ''.join(char for char in name
                                     if char.isalnum() or char in '_-')
                 if not safe_name:
@@ -216,15 +219,20 @@ class MinecraftBuildServer:
                         'Overwrite world', 'Replace this existing world?'):
                     return
                 self._create_selected_world(selected_path, use_template.get())
-            else:
-                selected = world_list.curselection()
-                if not selected:
-                    messagebox.showerror('No world selected',
-                                         'Select a saved world or enter a new name.')
-                    return
-                selected_path = world_paths[selected[0]]
-                self.world = ServerWorld(selected_path)
 
+            status_label.config(text=f'Running: {selected_path.name}', fg='green')
+            set_controls_enabled(False)
+            network_thread = threading.Thread(target=self._serve_network, daemon=True)
+            network_thread.start()
+
+        def load_selected_world():
+            selected = world_list.curselection()
+            if not selected:
+                messagebox.showerror('No world selected',
+                                     'Select a saved world first.')
+                return
+            selected_path = world_paths[selected[0]]
+            self.world = ServerWorld(selected_path)
             status_label.config(text=f'Running: {selected_path.name}', fg='green')
             set_controls_enabled(False)
             network_thread = threading.Thread(target=self._serve_network, daemon=True)
@@ -233,7 +241,10 @@ class MinecraftBuildServer:
         start_button = tk.Button(root, text='Start server', command=start_server,
                                  width=24, height=2)
         start_button.pack(pady=(12, 4))
-        startup_controls.extend([world_list, world_name, start_button])
+        load_button = tk.Button(root, text='Load selected world',
+                    command=load_selected_world, width=24)
+        load_button.pack(pady=3)
+        startup_controls.extend([world_list, world_name, start_button, load_button])
 
         def refresh():
             if self.stop_event.is_set():
@@ -292,14 +303,27 @@ class MinecraftBuildServer:
                         int(block_id), orientation]
         self.world.save()
 
+    @staticmethod
+    def _next_world_path(saves_dir):
+        base_name = '新規ワールド'
+        candidate = saves_dir / f'{base_name}.json'
+        if not candidate.exists():
+            return candidate
+        number = 1
+        while True:
+            candidate = saves_dir / f'{base_name}（{number}）.json'
+            if not candidate.exists():
+                return candidate
+            number += 1
+
     def create_new_world(self):
-        self.world.save()
+        self._save_world()
         self.world.blocks = {
             (x, 0, z): [0, 'y']
             for x in range(WORLD_SIZE)
             for z in range(WORLD_SIZE)
         }
-        self.world.save()
+        self._save_world()
         with self.sessions_lock:
             sessions = list(self.sessions.values())
         for session in sessions:
@@ -313,7 +337,7 @@ class MinecraftBuildServer:
         print('new world created and sent to connected players')
 
     def create_template_world(self):
-        self.world.save()
+        self._save_world()
         template_path = self._template_path()
         with template_path.open(encoding='utf-8') as template_file:
             data = json.load(template_file)
@@ -325,7 +349,7 @@ class MinecraftBuildServer:
             orientation = entry[4] if len(entry) > 4 else 'y'
             self.world.blocks[(int(x), int(y), int(z))] = [
                 int(block_id), orientation]
-        self.world.save()
+        self._save_world()
         with self.sessions_lock:
             sessions = list(self.sessions.values())
         for session in sessions:
@@ -357,8 +381,12 @@ class MinecraftBuildServer:
             self.sessions.clear()
         for session in sessions:
             session.close()
-        self.world.save()
+        self._save_world()
         print('server stopped; world saved')
+
+    def _save_world(self):
+        if self.world:
+            self.world.save()
 
     def _client_loop(self, session):
         buffer = MessageBuffer()
