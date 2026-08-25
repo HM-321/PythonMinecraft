@@ -304,8 +304,7 @@ class MinecraftBuildServer:
         self.world.save()
 
     @staticmethod
-    def _next_world_path(saves_dir):
-        base_name = '新規ワールド'
+    def _next_world_path(saves_dir, base_name='新規ワールド'):
         candidate = saves_dir / f'{base_name}.json'
         if not candidate.exists():
             return candidate
@@ -318,22 +317,16 @@ class MinecraftBuildServer:
 
     def create_new_world(self):
         self._save_world()
-        self.world.blocks = {
+        new_path = self._next_world_path(APP_DIR / 'saves', '新規ワールド')
+        new_blocks = {
             (x, 0, z): [0, 'y']
             for x in range(WORLD_SIZE)
             for z in range(WORLD_SIZE)
         }
+        self.world = ServerWorld(new_path)
+        self.world.blocks = new_blocks
         self._save_world()
-        with self.sessions_lock:
-            sessions = list(self.sessions.values())
-        for session in sessions:
-            try:
-                session.send({
-                    'type': 'world_reset',
-                    'blocks': self.world.snapshot(),
-                })
-            except OSError:
-                self._remove_session(session)
+        self._broadcast_world_reset()
         print('new world created and sent to connected players')
 
     def create_template_world(self):
@@ -341,15 +334,22 @@ class MinecraftBuildServer:
         template_path = self._template_path()
         with template_path.open(encoding='utf-8') as template_file:
             data = json.load(template_file)
-        self.world.blocks = {}
+        new_path = self._next_world_path(APP_DIR / 'saves', 'テンプレートワールド')
+        new_world = ServerWorld(new_path)
+        new_world.blocks = {}
         for entry in data.get('blocks', []):
             if len(entry) < 4:
                 continue
             x, y, z, block_id = entry[:4]
             orientation = entry[4] if len(entry) > 4 else 'y'
-            self.world.blocks[(int(x), int(y), int(z))] = [
+            new_world.blocks[(int(x), int(y), int(z))] = [
                 int(block_id), orientation]
+        self.world = new_world
         self._save_world()
+        self._broadcast_world_reset()
+        print('template world regenerated and sent to connected players')
+
+    def _broadcast_world_reset(self):
         with self.sessions_lock:
             sessions = list(self.sessions.values())
         for session in sessions:
@@ -360,7 +360,6 @@ class MinecraftBuildServer:
                 })
             except OSError:
                 self._remove_session(session)
-        print('template world regenerated and sent to connected players')
 
     @staticmethod
     def _template_path():

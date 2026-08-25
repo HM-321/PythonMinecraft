@@ -24,7 +24,7 @@ Windows Defender Firewallの確認が表示されたら、プライベートネ�
 
 サーバー画面の「新しいワールド」ボタンを押すと、現在のワールドを保存して新しい平地ワールドに切り替えます。接続中のクライアントにも新しいワールドが反映されます。
 
-Tkinter画面で名前を空欄にして `Start server` を押すと、自動名の新規ワールドが作成されます。テンプレートのチェックがONならTemplate.jsonを使います。既存ワールドは一覧から選び、`Load selected world` を押します。起動中の `Regenerate from Template` は現在のワールドを保存してからテンプレートを読み直します。サーバー画面を閉じると、現在のワールドをsavesに保存して終了します。
+Tkinter画面で名前を空欄にして `Start server` を押すと、自動名の新規ワールドが作成されます。テンプレートのチェックがONならTemplate.jsonを使います。既存ワールドは一覧から選び、`Load selected world` を押します。起動中の `New world while running` と `Regenerate from Template` は、現在のワールドを保存して残したまま、新しいJSONファイルへ切り替えます。テンプレート再生成では `テンプレートワールド.json`、平地再生成では `新規ワールド.json` を基準に連番で保存します。サーバー画面を閉じると、現在のワールドをsavesに保存して終了します。
 
 ## Macから参加
 
