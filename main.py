@@ -250,14 +250,21 @@ def _apply_network_block_change(message):
     position = (message.get('x'), message.get('y'), message.get('z'))
     if None in position:
         return
+    def block_position(block):
+        block_y = block.y + 0.5 if getattr(block, 'custom_mesh', False) else block.y
+        return (round(block.x), round(block_y), round(block.z))
+
     existing = next((block for block in world.boxes
-                     if (round(block.x), round(block.y), round(block.z)) == position), None)
+                     if block_position(block) == position), None)
     if message.get('action') == 'break':
         if existing:
+            block_particles.burst(existing)
             world.remove_block(existing)
+            sound_mgr.play_break()
     elif message.get('action') == 'place' and not existing:
         world.place_block(*position, message.get('block_id', 0),
                           orientation=message.get('orientation', 'y'))
+        sound_mgr.play_place()
     
 
 
@@ -280,6 +287,7 @@ def _resume_game():
 
 def _save_and_quit():
     network_client = game.get('network_client')
+    was_network_game = network_client is not None
     if network_client:
         network_client.close()
     elif game.get('world') and game.get('player'):
@@ -327,7 +335,10 @@ def _save_and_quit():
         'remote_players': {},
     })
     sound_mgr.start_bgm()
-    _show_menu()
+    if was_network_game:
+        _show_title()
+    else:
+        _show_menu()
 
 
 def _reload_app():
@@ -449,7 +460,7 @@ def _show_title():
 
 def _show_menu():
     global menu
-    menu = WorldSelectMenu(on_select=start_game)
+    menu = WorldSelectMenu(on_select=start_game, on_back=_show_title)
 
 
 def _show_multiplayer_menu():
@@ -466,7 +477,11 @@ def _join_multiplayer(host, port, join_menu):
     try:
         client.connect()
     except (OSError, ValueError) as exc:
-        join_menu.show_error(f'CONNECTION FAILED: {exc}')
+        if isinstance(exc, OSError) and getattr(exc, 'errno', None) == 61:
+            message = 'CONNECTION REFUSED: CHECK SERVER IP, PORT, AND FIREWALL'
+        else:
+            message = f'CONNECTION FAILED: {exc}'
+        join_menu.show_error(message)
         return
     join_menu.close()
     game['network_client'] = client

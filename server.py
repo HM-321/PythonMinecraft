@@ -9,6 +9,7 @@ import json
 import math
 import signal
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -18,7 +19,8 @@ from network_protocol import MessageBuffer, ProtocolError, encode_message
 
 
 DEFAULT_PORT = 25565
-DEFAULT_WORLD_PATH = Path('saves') / 'server_world.json'
+BASE_DIR = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
+DEFAULT_WORLD_PATH = BASE_DIR / 'saves' / 'server_world.json'
 MAX_PLAYERS = 2
 STATE_INTERVAL = 1.0 / 20.0
 SAVE_INTERVAL = 30.0
@@ -220,11 +222,14 @@ class MinecraftBuildServer:
             (position[index] - session.state[axis]) ** 2
             for index, axis in enumerate(('x', 'y', 'z'))
         ))
-        if distance > 6:
+        if distance > 8:
+            print(f'player {session.player_id} block request out of reach: '
+                  f'position={position}, player={session.state}, distance={distance:.2f}')
             return
 
         if message['type'] == 'place_block':
             if position in self.world.blocks:
+                print(f'player {session.player_id} tried to place an occupied block: {position}')
                 return
             orientation = message.get('orientation', 'y')
             if orientation not in ('x', 'y', 'z'):
@@ -235,6 +240,7 @@ class MinecraftBuildServer:
                      'orientation': orientation}
         else:
             if position not in self.world.blocks:
+                print(f'player {session.player_id} tried to break a missing block: {position}')
                 return
             del self.world.blocks[position]
             event = {'type': 'block_changed', 'action': 'break', 'x': position[0],
