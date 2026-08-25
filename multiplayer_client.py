@@ -17,6 +17,7 @@ class MultiplayerClient:
         self._send_lock = threading.Lock()
         self._thread = None
         self._stop_event = threading.Event()
+        self._pending_breaks = set()
 
     def connect(self, timeout=5):
         if self._thread and self._thread.is_alive():
@@ -57,10 +58,24 @@ class MultiplayerClient:
         self._send(message)
 
     def request_break(self, x, y, z):
-        self._send({'type': 'break_block', 'x': int(x), 'y': int(y), 'z': int(z)})
+        position = (int(x), int(y), int(z))
+        if position in self._pending_breaks:
+            return False
+        self._pending_breaks.add(position)
+        try:
+            self._send({'type': 'break_block', 'x': position[0],
+                        'y': position[1], 'z': position[2]})
+        except (OSError, RuntimeError):
+            self._pending_breaks.discard(position)
+            raise
+        return True
+
+    def acknowledge_break(self, x, y, z):
+        self._pending_breaks.discard((int(x), int(y), int(z)))
 
     def close(self):
         self._stop_event.set()
+        self._pending_breaks.clear()
         connection = self._socket
         self._socket = None
         if connection:

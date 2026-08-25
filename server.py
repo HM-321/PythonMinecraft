@@ -229,8 +229,6 @@ class MinecraftBuildServer:
                      'block_id': block_id, 'orientation': orientation}
         else:
             if position not in self.world.blocks:
-                print(f'player {session.player_id} tried to break a missing '
-                      f'block: {position}')
                 return
             del self.world.blocks[position]
             print(f'player {session.player_id} broke block: {position}')

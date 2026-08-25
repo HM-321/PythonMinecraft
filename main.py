@@ -250,6 +250,8 @@ def _apply_network_block_change(message):
     position = (message.get('x'), message.get('y'), message.get('z'))
     if None in position:
         return
+    if message.get('action') == 'break' and game.get('network_client'):
+        game['network_client'].acknowledge_break(*position)
     def block_position(block):
         return getattr(block, 'block_position',
                        (round(block.x), round(block.y), round(block.z)))
