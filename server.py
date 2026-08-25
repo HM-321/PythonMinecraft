@@ -164,7 +164,7 @@ class MinecraftBuildServer:
 
         root = tk.Tk()
         root.title('MinecraftBuild Server')
-        root.geometry('520x520')
+        root.geometry('520x640')
         root.resizable(False, False)
         tk.Label(root, text='MinecraftBuild Server',
                  font=('Arial', 16, 'bold')).pack(pady=(16, 2))
@@ -266,7 +266,7 @@ class MinecraftBuildServer:
 
         template_button = tk.Button(root, text='Regenerate from Template',
                                     command=reset_from_template, width=24)
-        template_button.pack(pady=2)
+        template_button.pack(pady=8)
         def close_panel():
             self.shutdown()
             root.destroy()
