@@ -244,6 +244,8 @@ class MinecraftBuildServer:
                 print(f'player {session.player_id} tried to break a missing block: {position}')
                 return
             del self.world.blocks[actual_position]
+            print(f'player {session.player_id} broke block: '
+                  f'requested={position}, actual={actual_position}')
             event = {'type': 'block_changed', 'action': 'break',
                      'x': actual_position[0], 'y': actual_position[1],
                      'z': actual_position[2]}
@@ -253,7 +255,7 @@ class MinecraftBuildServer:
         if requested in self.world.blocks:
             return requested
         nearest = None
-        nearest_distance = 0.75 ** 2
+        nearest_distance = 1.75 ** 2
         for position in self.world.blocks:
             distance = sum((position[index] - requested[index]) ** 2
                            for index in range(3))
