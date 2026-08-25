@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from config import SAVE_VERSION, WORLD_SIZE
+from config import (PLAYER_HEIGHT, PLAYER_RADIUS, SAVE_VERSION, WORLD_SIZE)
 from network_protocol import MessageBuffer, ProtocolError, encode_message
 
 
@@ -215,6 +215,11 @@ class MinecraftBuildServer:
         if message['type'] == 'place_block':
             if not 0 <= block_id <= 255 or position in self.world.blocks:
                 return
+            self._update_position_from_request(session, message)
+            if self._block_overlaps_player(position, session):
+                print(f'player {session.player_id} place rejected: '
+                      f'block intersects player at {position}')
+                return
             orientation = message.get('orientation', 'y')
             if orientation not in ('x', 'y', 'z'):
                 orientation = 'y'
@@ -232,6 +237,31 @@ class MinecraftBuildServer:
             event = {'type': 'block_changed', 'action': 'break',
                      'x': position[0], 'y': position[1], 'z': position[2]}
         self._broadcast(event)
+
+    def _update_position_from_request(self, session, message):
+        for key in ('x', 'y', 'z'):
+            value = message.get(f'player_{key}')
+            if isinstance(value, (int, float)):
+                session.state[key] = max(-10000, min(10000, float(value)))
+
+    def _block_overlaps_player(self, block_position, placing_session):
+        block_x, block_y, block_z = block_position
+        for session in self.sessions.values():
+            if session is not placing_session:
+                player = session.state
+            else:
+                player = placing_session.state
+            overlaps = (
+                player['x'] - PLAYER_RADIUS < block_x + 0.5 and
+                player['x'] + PLAYER_RADIUS > block_x - 0.5 and
+                player['y'] < block_y and
+                player['y'] + PLAYER_HEIGHT > block_y - 1 and
+                player['z'] - PLAYER_RADIUS < block_z + 0.5 and
+                player['z'] + PLAYER_RADIUS > block_z - 0.5
+            )
+            if overlaps:
+                return True
+        return False
 
     def _broadcast(self, message, exclude=None):
         with self.sessions_lock:

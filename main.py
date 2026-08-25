@@ -399,7 +399,12 @@ def _try_place_block():
 
     if game.get('network_client'):
         game['network_client'].request_place(
-            new_pos.x, new_pos.y, new_pos.z, hotbar.selected, orientation)
+            new_pos.x, new_pos.y, new_pos.z, hotbar.selected, orientation,
+            player_state={
+                'x': player.entity.x,
+                'y': player.entity.y,
+                'z': player.entity.z,
+            })
         return
 
     game['world'].place_block(new_pos.x, new_pos.y, new_pos.z,

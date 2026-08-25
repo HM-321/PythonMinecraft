@@ -45,9 +45,16 @@ class MultiplayerClient:
                         if key in state})
         self._send(message)
 
-    def request_place(self, x, y, z, block_id, orientation='y'):
-        self._send({'type': 'place_block', 'x': int(x), 'y': int(y), 'z': int(z),
-                    'block_id': int(block_id), 'orientation': orientation})
+    def request_place(self, x, y, z, block_id, orientation='y', player_state=None):
+        message = {
+            'type': 'place_block', 'x': int(x), 'y': int(y), 'z': int(z),
+            'block_id': int(block_id), 'orientation': orientation,
+        }
+        if player_state:
+            for key in ('x', 'y', 'z'):
+                if key in player_state:
+                    message[f'player_{key}'] = player_state[key]
+        self._send(message)
 
     def request_break(self, x, y, z):
         self._send({'type': 'break_block', 'x': int(x), 'y': int(y), 'z': int(z)})
