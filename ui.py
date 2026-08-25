@@ -181,7 +181,11 @@ class DebugOverlay:
         pitch = player.pitch
         facing = self._facing_from_yaw(yaw)
 
-        world_name = world.save_path.split('/')[-1].replace('.json', '')
+        world_name = (
+            os.path.basename(world.save_path).replace('.json', '')
+            if world.save_path
+            else 'Multiplayer'
+        )
 
         self.text.text = (
             f'World: {world_name}\n'
