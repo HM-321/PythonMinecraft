@@ -251,8 +251,8 @@ def _apply_network_block_change(message):
     if None in position:
         return
     def block_position(block):
-        block_y = block.y + 0.5 if getattr(block, 'custom_mesh', False) else block.y
-        return (round(block.x), round(block_y), round(block.z))
+        return getattr(block, 'block_position',
+                       (round(block.x), round(block.y), round(block.z)))
 
     existing = next((block for block in world.boxes
                      if block_position(block) == position), None)
@@ -413,12 +413,11 @@ def _try_break_block():
                   distance=REACH, ignore=[player.entity])
     if hit.hit and hit.entity in game['world'].boxes:
         if game.get('network_client'):
-            target = hit.entity
-            target_pos = target.position
-            if getattr(target, 'custom_mesh', False):
-                target_pos = Vec3(target_pos.x, target_pos.y + 0.5, target_pos.z)
+            target_position = getattr(
+                hit.entity, 'block_position',
+                (round(hit.entity.x), round(hit.entity.y), round(hit.entity.z)))
             game['network_client'].request_break(
-                target_pos.x, target_pos.y, target_pos.z)
+                *target_position)
             return
         block_particles.burst(hit.entity)
         game['world'].remove_block(hit.entity)

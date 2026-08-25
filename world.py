@@ -47,6 +47,7 @@ class World:
             b.setTransparency(TransparencyAttrib.M_alpha)
             b.set_bin('transparent', 30)
 
+        b.block_position = (int(x), int(y), int(z))
         self.boxes.append(b)
         return b
         name, col, tex_info = BLOCK_TYPES[block_id]
@@ -113,10 +114,12 @@ class World:
 
     def _block_to_save(self, b):
         _, _, tex_info = BLOCK_TYPES[b.block_type]
+        block_x, block_y, block_z = getattr(
+            b, 'block_position', (b.x, b.y, b.z))
         if isinstance(tex_info, dict):
-            return [int(b.x), int(b.y + 0.5), int(b.z), b.block_type,
+            return [int(block_x), int(block_y), int(block_z), b.block_type,
                     getattr(b, 'orientation', 'y')]
-        return [int(b.x), int(b.y), int(b.z), b.block_type,
+        return [int(block_x), int(block_y), int(block_z), b.block_type,
                 getattr(b, 'orientation', 'y')]
 
 

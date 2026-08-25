@@ -7,38 +7,14 @@ The Windows build packages this module as a console executable.
 import argparse
 import json
 import math
-import signal
-import socket
+            if position not in self.world.blocks:
 import sys
 import threading
-import time
-from pathlib import Path
-
+            del self.world.blocks[position]
+            print(f'player {session.player_id} broke block: {position}')
 from config import SAVE_VERSION, WORLD_SIZE
-from network_protocol import MessageBuffer, ProtocolError, encode_message
+                     'x': position[0], 'y': position[1], 'z': position[2]}
 
-
-DEFAULT_PORT = 25565
-BASE_DIR = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
-DEFAULT_WORLD_PATH = BASE_DIR / 'saves' / 'server_world.json'
-MAX_PLAYERS = 2
-STATE_INTERVAL = 1.0 / 20.0
-SAVE_INTERVAL = 30.0
-
-
-class ServerWorld:
-    def __init__(self, path):
-        self.path = Path(path)
-        self.blocks = {}
-        self.player_positions = {}
-        self._load_or_create()
-
-    def _load_or_create(self):
-        if self.path.exists():
-            with self.path.open(encoding='utf-8') as world_file:
-                data = json.load(world_file)
-            for entry in data.get('blocks', []):
-                if len(entry) < 4:
                     continue
                 x, y, z, block_id = entry[:4]
                 orientation = entry[4] if len(entry) > 4 else 'y'
@@ -239,30 +215,14 @@ class MinecraftBuildServer:
                      'y': position[1], 'z': position[2], 'block_id': block_id,
                      'orientation': orientation}
         else:
-            actual_position = self._resolve_block_position(position)
-            if actual_position is None:
+            if position not in self.world.blocks:
                 print(f'player {session.player_id} tried to break a missing block: {position}')
                 return
-            del self.world.blocks[actual_position]
-            print(f'player {session.player_id} broke block: '
-                  f'requested={position}, actual={actual_position}')
+            del self.world.blocks[position]
+            print(f'player {session.player_id} broke block: {position}')
             event = {'type': 'block_changed', 'action': 'break',
-                     'x': actual_position[0], 'y': actual_position[1],
-                     'z': actual_position[2]}
+                     'x': position[0], 'y': position[1], 'z': position[2]}
         self._broadcast(event)
-
-    def _resolve_block_position(self, requested):
-        if requested in self.world.blocks:
-            return requested
-        nearest = None
-        nearest_distance = 1.75 ** 2
-        for position in self.world.blocks:
-            distance = sum((position[index] - requested[index]) ** 2
-                           for index in range(3))
-            if distance <= nearest_distance:
-                nearest = position
-                nearest_distance = distance
-        return nearest
 
     def _broadcast(self, message, exclude=None):
         with self.sessions_lock:
