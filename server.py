@@ -196,11 +196,11 @@ class MinecraftBuildServer:
                                 fg='gray')
         status_label.pack(pady=3)
 
-        controls = []
+        startup_controls = []
 
         def set_controls_enabled(enabled):
             state = tk.NORMAL if enabled else tk.DISABLED
-            for control in controls:
+            for control in startup_controls:
                 control.config(state=state)
 
         def start_server():
@@ -233,7 +233,7 @@ class MinecraftBuildServer:
         start_button = tk.Button(root, text='Start server', command=start_server,
                                  width=24, height=2)
         start_button.pack(pady=(12, 4))
-        controls.extend([world_list, world_name, start_button])
+        startup_controls.extend([world_list, world_name, start_button])
 
         def refresh():
             if self.stop_event.is_set():
@@ -253,7 +253,6 @@ class MinecraftBuildServer:
         reset_button = tk.Button(root, text='New world while running',
                      command=reset_world, width=24)
         reset_button.pack(pady=8)
-        controls.append(reset_button)
 
         def reset_from_template():
             if not self._template_path().exists():
@@ -268,7 +267,6 @@ class MinecraftBuildServer:
         template_button = tk.Button(root, text='Regenerate from Template',
                                     command=reset_from_template, width=24)
         template_button.pack(pady=2)
-        controls.append(template_button)
         def close_panel():
             self.shutdown()
             root.destroy()
