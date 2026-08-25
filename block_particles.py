@@ -77,4 +77,5 @@ class BlockParticles:
             random.randrange(image.width),
             random.randrange(image.height),
         ))
+        
         return color.rgba32(*pixel)
