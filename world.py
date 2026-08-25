@@ -44,8 +44,10 @@ class World:
 
         if name == 'Glass':
             from panda3d.core import TransparencyAttrib
+
             b.setTransparency(TransparencyAttrib.M_alpha)
             b.set_bin('transparent', 30)
+            b.setDepthWrite(False)
 
         b.block_position = (int(x), int(y), int(z))
         self.boxes.append(b)
