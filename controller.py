@@ -3,15 +3,23 @@ import struct
 import threading
 import time
 
+try:
+    import sdl2
+except ImportError:
+    sdl2 = None
+
 
 class Controller:
     VID = 0x45e
     PID = 0xb12
+    LOGICOOL_VID = 0x46d
+    LOGICOOL_PID = 0xc219
 
     def __init__(self):
         self.connected = False
         self.state = None
         self.dev = None
+        self.sdl_joy = None
 
         self._prev_buttons = {}
         self._button_pressed_this_frame = {}
@@ -40,7 +48,27 @@ class Controller:
         except Exception as e:
             print(f'No controller: {e}')
             self.dev = None
+            self._detect_sdl()
+
+    def _detect_sdl(self):
+        if sdl2 is None:
+            self.sdl_joy = None
             self.connected = False
+            return
+        try:
+            sdl2.SDL_Init(sdl2.SDL_INIT_JOYSTICK)
+            for index in range(sdl2.SDL_NumJoysticks()):
+                if (sdl2.SDL_JoystickGetDeviceVendor(index) == self.LOGICOOL_VID
+                        and sdl2.SDL_JoystickGetDeviceProduct(index) == self.LOGICOOL_PID):
+                    self.sdl_joy = sdl2.SDL_JoystickOpen(index)
+                    if self.sdl_joy:
+                        self.connected = True
+                        print(f'Controller: {sdl2.SDL_JoystickName(self.sdl_joy).decode()}')
+                        return
+        except Exception as e:
+            print(f'No SDL controller: {e}')
+        self.sdl_joy = None
+        self.connected = False
 
     def is_connected(self):
         return self.connected
@@ -52,6 +80,10 @@ class Controller:
                 if not self.connected:
                     time.sleep(1)
                     continue
+
+            if self.sdl_joy:
+                time.sleep(0.01)
+                continue
 
             try:
                 data = self.dev.read(64)
@@ -95,6 +127,9 @@ class Controller:
             self.state = state
 
     def update(self):
+        if self.sdl_joy:
+            self._update_sdl()
+
         with self._state_lock:
             state = self.state.copy() if self.state else None
         if not state:
@@ -117,6 +152,41 @@ class Controller:
         now_rt = state.get('RT', 0) > THRESH
         self._rt_edge = now_rt and not self._prev_rt
         self._prev_rt = now_rt
+
+    def _update_sdl(self):
+        sdl2.SDL_JoystickUpdate()
+        axis_count = sdl2.SDL_JoystickNumAxes(self.sdl_joy)
+        button_count = sdl2.SDL_JoystickNumButtons(self.sdl_joy)
+        hat = sdl2.SDL_JoystickGetHat(self.sdl_joy, 0) if sdl2.SDL_JoystickNumHats(self.sdl_joy) else 0
+
+        def axis(index):
+            if index >= axis_count:
+                return 0
+            return sdl2.SDL_JoystickGetAxis(self.sdl_joy, index) / 32767.0
+
+        def button(index):
+            return bool(index < button_count and sdl2.SDL_JoystickGetButton(self.sdl_joy, index))
+
+        state = {
+            'A': button(0),
+            'B': button(1),
+            'X': button(2),
+            'Y': button(3),
+            'LB': button(4),
+            'RB': button(5),
+            'dpad_up': bool(hat & sdl2.SDL_HAT_UP),
+            'dpad_down': bool(hat & sdl2.SDL_HAT_DOWN),
+            'dpad_left': bool(hat & sdl2.SDL_HAT_LEFT),
+            'dpad_right': bool(hat & sdl2.SDL_HAT_RIGHT),
+            'LT': 0,
+            'RT': 0,
+            'LX': axis(0),
+            'LY': axis(1),
+            'RX': axis(2),
+            'RY': axis(3),
+        }
+        with self._state_lock:
+            self.state = state
 
     def button_held(self, key):
         if not self.state:

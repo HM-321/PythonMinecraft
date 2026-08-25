@@ -47,8 +47,11 @@ class Settings:
                         self.data[k] = v
             except Exception as e:
                 print(f'settings load error: {e}')
+        else:
+            self.save()
 
     def save(self):
+        os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
         with open(SETTINGS_PATH, 'w') as f:
             json.dump(self.data, f, indent=2)
         print(f'settings saved: {SETTINGS_PATH}')

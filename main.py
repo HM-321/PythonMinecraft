@@ -1,11 +1,14 @@
 import os
 import shutil
 import time as _pytime
+from pathlib import Path
 from ursina import *
+from ursina import application
 from panda3d.core import WindowProperties
 
+from app_runtime import install_crash_logging
 from settings import settings
-from config import SAVE_DIR, TEMPLATE_PATH, WORLD_SIZE, REACH
+from config import RESOURCE_DIR, SAVE_DIR, TEMPLATE_PATH, SCREENSHOTS_DIR, WORLD_SIZE, REACH, write_resource_log
 from config import CLICK_INTERVAL, SCROLL_INTERVAL
 from block_types import BLOCK_TYPES
 from ui import Crosshair, Hotbar, SelectionFrame, DebugOverlay
@@ -15,15 +18,23 @@ from menu import WorldSelectMenu
 from sound_manager import SoundManager
 from controller import Controller
 from block_particles import BlockParticles
+from multiplayer_client import MultiplayerClient
+from player_model import RemotePlayer
 
+install_crash_logging()
 os.makedirs(SAVE_DIR, exist_ok=True)
+os.chdir(RESOURCE_DIR)
+application.asset_folder = Path(RESOURCE_DIR)
+write_resource_log()
 
 
 app = Ursina()
+application.asset_folder = Path(RESOURCE_DIR)
 window.color = color.azure
 
-FONT_PATH = '/Users/s13010282/Library/Fonts/JF-Dot-AyuMin18.ttf'
-Text.default_font = FONT_PATH
+FONT_PATH = os.path.expanduser('~/Library/Fonts/JF-Dot-AyuMin18.ttf')
+if os.path.exists(FONT_PATH):
+    Text.default_font = FONT_PATH
 from screeninfo import get_monitors
 m = get_monitors()[0]
 
@@ -69,6 +80,11 @@ game = {
     'scroll_cd': 0,
     'esc_cd': 0,
     'cull_counter': 0,
+    'network_client': None,
+    'network_pending': None,
+    'network_player_id': None,
+    'remote_players': {},
+    'network_state_cd': 0,
 }
 
 
@@ -127,6 +143,121 @@ def start_game(save_path, is_new, use_template=False):
 
     invoke(force_redraw, delay=0.5)
     game['started'] = True
+
+
+def _start_network_game(snapshot):
+    client = game['network_client']
+    player_id = snapshot['player_id']
+    own_player = next((p for p in snapshot.get('players', [])
+                       if p.get('id') == player_id), None)
+    spawn = (WORLD_SIZE / 2, 3, WORLD_SIZE / 2)
+    if own_player:
+        spawn = (own_player.get('x', spawn[0]), own_player.get('y', spawn[1]),
+                 own_player.get('z', spawn[2]))
+
+    sound_mgr.stop_bgm()
+    props = WindowProperties()
+    props.setCursorHidden(True)
+    app.win.requestProperties(props)
+    mouse.visible = False
+
+    game['crosshair'] = Crosshair()
+    game['hotbar'] = Hotbar()
+    game['hotbar']._refresh()
+    game['selection'] = SelectionFrame()
+    game['debug'] = DebugOverlay()
+    game['player'] = PlayerController(spawn)
+    if own_player:
+        game['player'].yaw = own_player.get('yaw', 0)
+        game['player'].pitch = own_player.get('pitch', 0)
+        game['player'].gravity_on = own_player.get('gravity_on', True)
+        game['player'].entity.rotation_y = game['player'].yaw
+        camera.rotation_x = game['player'].pitch
+    camera.fov = settings.get('fov')
+    game['world'] = World(None)
+    for block in snapshot.get('blocks', []):
+        if len(block) >= 4:
+            game['world'].place_block(*block[:3], block[3],
+                                      orientation=block[4] if len(block) > 4 else 'y')
+
+    game['remote_players'] = {}
+    game['network_player_id'] = player_id
+    for remote in snapshot.get('players', []):
+        if remote.get('id') != player_id:
+            _update_remote_player(remote)
+    game['network_pending'] = None
+    game['network_state_cd'] = 0
+    game['started'] = True
+
+
+def _update_remote_player(data):
+    player_id = data.get('id')
+    if player_id is None or player_id == game.get('network_player_id'):
+        return
+    remote = game['remote_players'].get(player_id)
+    if remote is None:
+        remote = RemotePlayer(player_id)
+        game['remote_players'][player_id] = remote
+    remote.update(
+        (data.get('x', 0), data.get('y', 0), data.get('z', 0)),
+        yaw=data.get('yaw', 0),
+        moving=data.get('moving', False),
+        dt=time.dt,
+    )
+
+
+def _process_network_events():
+    client = game.get('network_client')
+    if not client:
+        return
+    for message in client.poll():
+        message_type = message.get('type')
+        if message_type == 'world_snapshot' and not game['started']:
+            _start_network_game(message)
+        elif message_type == 'player_join':
+            _update_remote_player(message.get('player', {}))
+        elif message_type == 'player_state':
+            _update_remote_player(message.get('player', {}))
+        elif message_type == 'player_leave':
+            remote = game['remote_players'].pop(message.get('id'), None)
+            if remote:
+                remote.destroy()
+        elif message_type == 'block_changed':
+            _apply_network_block_change(message)
+        elif message_type in ('error', 'disconnected'):
+            print(f'multiplayer: {message.get("message", message.get("reason", "error"))}')
+            if message_type == 'disconnected':
+                _handle_network_disconnect()
+                return
+
+
+def _handle_network_disconnect():
+    if game.get('started'):
+        _save_and_quit()
+        return
+    client = game.get('network_client')
+    if client:
+        client.close()
+    game['network_client'] = None
+    game['network_pending'] = None
+    _show_title()
+
+
+def _apply_network_block_change(message):
+    world = game.get('world')
+    if not world:
+        return
+    position = (message.get('x'), message.get('y'), message.get('z'))
+    if None in position:
+        return
+    existing = next((block for block in world.boxes
+                     if (round(block.x), round(block.y), round(block.z)) == position), None)
+    if message.get('action') == 'break':
+        if existing:
+            world.remove_block(existing)
+    elif message.get('action') == 'place' and not existing:
+        world.place_block(*position, message.get('block_id', 0),
+                          orientation=message.get('orientation', 'y'))
     
 
 
@@ -148,7 +279,11 @@ def _resume_game():
 
 
 def _save_and_quit():
-    game['world'].save(game['player'].entity)
+    network_client = game.get('network_client')
+    if network_client:
+        network_client.close()
+    elif game.get('world') and game.get('player'):
+        game['world'].save(game['player'].entity)
     sound_mgr.stop_bgm()
 
     if game.get('pause_menu'):
@@ -158,9 +293,13 @@ def _save_and_quit():
         if obj:
             destroy(getattr(obj, 'root', obj))
 
-    for block in game['world'].boxes:
-        destroy(block)
-    destroy(game['player'].entity)
+    if game.get('world'):
+        for block in game['world'].boxes:
+            destroy(block)
+    for remote in game.get('remote_players', {}).values():
+        remote.destroy()
+    if game.get('player'):
+        destroy(game['player'].entity)
 
     props = WindowProperties()
     props.setCursorHidden(False)
@@ -182,6 +321,10 @@ def _save_and_quit():
         'selection': None,
         'debug': None,
         'first_frame': True,
+        'network_client': None,
+        'network_pending': None,
+        'network_player_id': None,
+        'remote_players': {},
     })
     sound_mgr.start_bgm()
     _show_menu()
@@ -189,7 +332,7 @@ def _save_and_quit():
 
 def _reload_app():
     import sys
-    if game['started'] and game['world']:
+    if game['started'] and game['world'] and not game.get('network_client'):
         try:
             game['world'].save(game['player'].entity)
         except Exception:
@@ -243,6 +386,11 @@ def _try_place_block():
     else:
         orientation = 'y'
 
+    if game.get('network_client'):
+        game['network_client'].request_place(
+            new_pos.x, new_pos.y, new_pos.z, hotbar.selected, orientation)
+        return
+
     game['world'].place_block(new_pos.x, new_pos.y, new_pos.z,
                               hotbar.selected, orientation=orientation)
     sound_mgr.play_place()
@@ -253,6 +401,14 @@ def _try_break_block():
     hit = raycast(camera.world_position, camera.forward,
                   distance=REACH, ignore=[player.entity])
     if hit.hit and hit.entity in game['world'].boxes:
+        if game.get('network_client'):
+            target = hit.entity
+            target_pos = target.position
+            if getattr(target, 'custom_mesh', False):
+                target_pos = Vec3(target_pos.x, target_pos.y + 0.5, target_pos.z)
+            game['network_client'].request_break(
+                target_pos.x, target_pos.y, target_pos.z)
+            return
         block_particles.burst(hit.entity)
         game['world'].remove_block(hit.entity)
         sound_mgr.play_break()
@@ -260,7 +416,7 @@ def _try_break_block():
 
 def _take_screenshot():
     from datetime import datetime
-    ss_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'screenshots')
+    ss_dir = SCREENSHOTS_DIR
     os.makedirs(ss_dir, exist_ok=True)
     filename = datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.png'
     path = os.path.join(ss_dir, filename)
@@ -288,12 +444,33 @@ from title import TitleScreen
 
 def _show_title():
     global title
-    title = TitleScreen(on_start=_show_menu)
+    title = TitleScreen(on_start=_show_menu, on_multiplayer=_show_multiplayer_menu)
 
 
 def _show_menu():
     global menu
     menu = WorldSelectMenu(on_select=start_game)
+
+
+def _show_multiplayer_menu():
+    from multiplayer_menu import MultiplayerMenu
+    global multiplayer_menu
+    multiplayer_menu = MultiplayerMenu(
+        on_join=_join_multiplayer,
+        on_back=_show_title,
+    )
+
+
+def _join_multiplayer(host, port, join_menu):
+    client = MultiplayerClient(host, port)
+    try:
+        client.connect()
+    except (OSError, ValueError) as exc:
+        join_menu.show_error(f'CONNECTION FAILED: {exc}')
+        return
+    join_menu.close()
+    game['network_client'] = client
+    game['network_pending'] = client
 
 
 title = None
@@ -311,6 +488,7 @@ def _center():
 
 def update():
     block_particles.update()
+    _process_network_events()
 
     if not game['started']:
         _limit_fps()
@@ -385,6 +563,24 @@ def update():
 
     player.update_movement()
 
+    if game.get('network_client'):
+        game['network_state_cd'] -= time.dt
+        if game['network_state_cd'] <= 0:
+            game['network_state_cd'] = 0.05
+            try:
+                game['network_client'].send_player_state({
+                    'x': player.entity.x,
+                    'y': player.entity.y,
+                    'z': player.entity.z,
+                    'yaw': player.yaw,
+                    'pitch': player.pitch,
+                    'gravity_on': player.gravity_on,
+                    'moving': player.velocity_h.length() > 0.1,
+                })
+            except (OSError, RuntimeError):
+                _handle_network_disconnect()
+                return
+
     # ===== 選択枠 =====
     hit = raycast(camera.world_position, camera.forward,
                   distance=REACH, ignore=[player.entity])
@@ -452,7 +648,7 @@ def input(key):
         return
 
     if key == key_open_ss:
-        ss_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'screenshots')
+        ss_dir = SCREENSHOTS_DIR
         import subprocess
         subprocess.Popen(['open', ss_dir])
         return
@@ -482,59 +678,12 @@ def input(key):
         return
     game['click_cd'] = CLICK_INTERVAL
 
-    player = game['player']
-    hit = raycast(camera.world_position, camera.forward,
-                  distance=REACH, ignore=[player.entity])
-    if not hit.hit or hit.entity not in game['world'].boxes:
-        return
-
-    target = hit.entity
-
     if key == 'left mouse down':
-        block_particles.burst(target)
-        game['world'].remove_block(target)
-        sound_mgr.play_break()
-
+        _try_break_block()
+        return
     if key == 'right mouse down':
-        hit_point = hit.world_point
-        target_pos = target.position
-        if getattr(target, 'custom_mesh', False):
-            target_pos = Vec3(target_pos.x, target_pos.y + 0.5, target_pos.z)
-        center = Vec3(target_pos.x, target_pos.y - 0.5, target_pos.z)
-
-        diff = hit_point - center
-        ax, ay, az = abs(diff.x), abs(diff.y), abs(diff.z)
-
-        if ax >= ay and ax >= az:
-            normal = Vec3(1 if diff.x > 0 else -1, 0, 0)
-        elif ay >= ax and ay >= az:
-            normal = Vec3(0, 1 if diff.y > 0 else -1, 0)
-        else:
-            normal = Vec3(0, 0, 1 if diff.z > 0 else -1)
-
-        new_pos = target_pos + normal
-
-        if player.block_overlaps(new_pos):
-            return
-        if player.is_above_standing_block(new_pos):
-            return
-
-        _, _, tex_info = BLOCK_TYPES[hotbar.selected]
-        is_rotatable = isinstance(tex_info, dict) and tex_info.get('rotatable', False)
-
-        if is_rotatable:
-            if abs(normal.y) > 0.5:
-                orientation = 'y'
-            elif abs(normal.x) > 0.5:
-                orientation = 'x'
-            else:
-                orientation = 'z'
-        else:
-            orientation = 'y'
-
-        game['world'].place_block(new_pos.x, new_pos.y, new_pos.z,
-                                  hotbar.selected, orientation=orientation)
-        sound_mgr.play_place()
+        _try_place_block()
+        return
 
 
 app.run()

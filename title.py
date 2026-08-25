@@ -3,8 +3,9 @@ from panda3d.core import WindowProperties
 
 
 class TitleScreen:
-    def __init__(self, on_start):
+    def __init__(self, on_start, on_multiplayer=None):
         self.on_start = on_start
+        self.on_multiplayer = on_multiplayer
 
         # カーソル表示
         import __main__
@@ -35,8 +36,13 @@ class TitleScreen:
                color=color.azure,
                on_click=self._start)
 
-        Button(parent=self.root, text='OPTIONS',
+        Button(parent=self.root, text='MULTIPLAYER',
                y=-0.27, scale=(0.2, 0.06),
+               color=color.rgb(60, 150, 100),
+               on_click=self._multiplayer)
+
+        Button(parent=self.root, text='OPTIONS',
+             y=-0.36, scale=(0.2, 0.06),
                color=color.dark_gray,
                on_click=self._options)
 
@@ -51,13 +57,19 @@ class TitleScreen:
         destroy(self.root)
         self.on_start()
 
+    def _multiplayer(self):
+        if not self.on_multiplayer:
+            return
+        destroy(self.root)
+        self.on_multiplayer()
+
     def _options(self):
         destroy(self.root)
         from options import OptionsScreen
         OptionsScreen(on_back=self._reopen_title)
 
     def _reopen_title(self):
-        TitleScreen(on_start=self.on_start)
+        TitleScreen(on_start=self.on_start, on_multiplayer=self.on_multiplayer)
 
     def close(self):
         destroy(self.root)

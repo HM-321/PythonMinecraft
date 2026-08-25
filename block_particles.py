@@ -5,6 +5,7 @@ from PIL import Image
 from ursina import Entity, Vec3, color, destroy, time
 
 from block_types import BLOCK_TYPES
+from config import resource_path
 
 
 class BlockParticles:
@@ -12,7 +13,7 @@ class BlockParticles:
         self.particles = []
         self._images = {}
 
-    def burst(self, block, amount=12):
+    def burst(self, block, amount=32):
         block_id = getattr(block, 'block_type', None)
         if block_id is None or not 0 <= block_id < len(BLOCK_TYPES):
             return
@@ -65,7 +66,7 @@ class BlockParticles:
 
         image = self._images.get(texture_path)
         if image is None:
-            path = os.path.join(os.path.dirname(__file__), texture_path)
+            path = texture_path if os.path.isabs(texture_path) else resource_path(texture_path)
             try:
                 image = Image.open(path).convert('RGBA')
             except (OSError, ValueError):
