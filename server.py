@@ -15,8 +15,9 @@ from network_protocol import MessageBuffer, ProtocolError, encode_message
 
 
 DEFAULT_PORT = 25565
-BASE_DIR = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
-DEFAULT_WORLD_PATH = BASE_DIR / 'saves' / 'server_world.json'
+APP_DIR = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
+RESOURCE_DIR = Path(getattr(sys, '_MEIPASS', APP_DIR))
+DEFAULT_WORLD_PATH = APP_DIR / 'saves' / 'server_world.json'
 MAX_PLAYERS = 2
 SAVE_INTERVAL = 30.0
 
@@ -174,7 +175,7 @@ class MinecraftBuildServer:
         world_list = tk.Listbox(root, height=10, width=58, exportselection=False)
         world_list.pack(padx=28, pady=6)
 
-        saves_dir = BASE_DIR / 'saves'
+        saves_dir = APP_DIR / 'saves'
         saves_dir.mkdir(parents=True, exist_ok=True)
         world_paths = sorted(saves_dir.glob('*.json'))
         for path in world_paths:
@@ -253,6 +254,21 @@ class MinecraftBuildServer:
                      command=reset_world, width=24)
         reset_button.pack(pady=8)
         controls.append(reset_button)
+
+        def reset_from_template():
+            if not self._template_path().exists():
+                messagebox.showerror('Template not found',
+                                     'Template.json was not found.')
+                return
+            if messagebox.askyesno(
+                    'Regenerate from template',
+                    'Save the current world and regenerate it from Template.json?'):
+                self.create_template_world()
+
+        template_button = tk.Button(root, text='Regenerate from Template',
+                                    command=reset_from_template, width=24)
+        template_button.pack(pady=2)
+        controls.append(template_button)
         def close_panel():
             self.shutdown()
             root.destroy()
@@ -264,7 +280,7 @@ class MinecraftBuildServer:
     def _create_selected_world(self, path, use_template):
         self.world = ServerWorld(path)
         if use_template:
-            template_path = BASE_DIR / 'Template.json'
+            template_path = self._template_path()
             if template_path.exists():
                 self.world.blocks.clear()
                 with template_path.open(encoding='utf-8') as template_file:
@@ -297,6 +313,39 @@ class MinecraftBuildServer:
             except OSError:
                 self._remove_session(session)
         print('new world created and sent to connected players')
+
+    def create_template_world(self):
+        self.world.save()
+        template_path = self._template_path()
+        with template_path.open(encoding='utf-8') as template_file:
+            data = json.load(template_file)
+        self.world.blocks = {}
+        for entry in data.get('blocks', []):
+            if len(entry) < 4:
+                continue
+            x, y, z, block_id = entry[:4]
+            orientation = entry[4] if len(entry) > 4 else 'y'
+            self.world.blocks[(int(x), int(y), int(z))] = [
+                int(block_id), orientation]
+        self.world.save()
+        with self.sessions_lock:
+            sessions = list(self.sessions.values())
+        for session in sessions:
+            try:
+                session.send({
+                    'type': 'world_reset',
+                    'blocks': self.world.snapshot(),
+                })
+            except OSError:
+                self._remove_session(session)
+        print('template world regenerated and sent to connected players')
+
+    @staticmethod
+    def _template_path():
+        resource_path = RESOURCE_DIR / 'Template.json'
+        if resource_path.exists():
+            return resource_path
+        return APP_DIR / 'Template.json'
 
     def shutdown(self):
         if self.stop_event.is_set() and self.listener is None:

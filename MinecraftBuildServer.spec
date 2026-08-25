@@ -7,7 +7,7 @@ analysis = Analysis(
     ['server.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[('Template.json', '.')],
     hiddenimports=['tkinter', 'tkinter.messagebox'],
     hookspath=[],
     hooksconfig={},
