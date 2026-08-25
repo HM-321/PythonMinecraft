@@ -108,8 +108,6 @@ class MinecraftBuildServer:
         self.next_player_id = 1
 
     def serve_forever(self):
-        network_thread = threading.Thread(target=self._serve_network, daemon=True)
-        network_thread.start()
         self._run_control_panel()
 
     def _serve_network(self):
@@ -154,6 +152,8 @@ class MinecraftBuildServer:
             from tkinter import messagebox
         except ImportError:
             print('tkinter is unavailable; press Ctrl+C to stop the server')
+            network_thread = threading.Thread(target=self._serve_network, daemon=True)
+            network_thread.start()
             try:
                 while not self.stop_event.wait(1.0):
                     pass
@@ -163,12 +163,76 @@ class MinecraftBuildServer:
 
         root = tk.Tk()
         root.title('MinecraftBuild Server')
-        root.geometry('360x180')
+        root.geometry('520x520')
         root.resizable(False, False)
-        tk.Label(root, text=f'LAN server : {self.port}',
-                 font=('Arial', 14)).pack(pady=(18, 4))
+        tk.Label(root, text='MinecraftBuild Server',
+                 font=('Arial', 16, 'bold')).pack(pady=(16, 2))
+        tk.Label(root, text=f'LAN port: {self.port}').pack(pady=(0, 10))
+
+        tk.Label(root, text='Select a world',
+                 font=('Arial', 12, 'bold')).pack(anchor='w', padx=28)
+        world_list = tk.Listbox(root, height=10, width=58, exportselection=False)
+        world_list.pack(padx=28, pady=6)
+
+        saves_dir = BASE_DIR / 'saves'
+        saves_dir.mkdir(parents=True, exist_ok=True)
+        world_paths = sorted(saves_dir.glob('*.json'))
+        for path in world_paths:
+            world_list.insert(tk.END, path.name)
+        if world_paths:
+            world_list.selection_set(0)
+
+        tk.Label(root, text='New world name (optional)').pack(anchor='w', padx=28)
+        world_name = tk.Entry(root, width=48)
+        world_name.pack(padx=28, pady=(3, 6))
+        use_template = tk.BooleanVar(value=True)
+        tk.Checkbutton(root, text='Use Template.json for a new world',
+                       variable=use_template).pack(anchor='w', padx=28)
+
         player_label = tk.Label(root, text='Players: 0 / 2')
-        player_label.pack(pady=4)
+        player_label.pack(pady=(12, 4))
+        status_label = tk.Label(root, text='Choose a world, then start the server',
+                                fg='gray')
+        status_label.pack(pady=3)
+
+        controls = []
+
+        def set_controls_enabled(enabled):
+            state = tk.NORMAL if enabled else tk.DISABLED
+            for control in controls:
+                control.config(state=state)
+
+        def start_server():
+            name = world_name.get().strip()
+            if name:
+                safe_name = ''.join(char for char in name
+                                    if char.isalnum() or char in '_-')
+                if not safe_name:
+                    messagebox.showerror('Invalid name', 'Enter a valid world name.')
+                    return
+                selected_path = saves_dir / f'{safe_name}.json'
+                if selected_path.exists() and not messagebox.askyesno(
+                        'Overwrite world', 'Replace this existing world?'):
+                    return
+                self._create_selected_world(selected_path, use_template.get())
+            else:
+                selected = world_list.curselection()
+                if not selected:
+                    messagebox.showerror('No world selected',
+                                         'Select a saved world or enter a new name.')
+                    return
+                selected_path = world_paths[selected[0]]
+                self.world = ServerWorld(selected_path)
+
+            status_label.config(text=f'Running: {selected_path.name}', fg='green')
+            set_controls_enabled(False)
+            network_thread = threading.Thread(target=self._serve_network, daemon=True)
+            network_thread.start()
+
+        start_button = tk.Button(root, text='Start server', command=start_server,
+                                 width=24, height=2)
+        start_button.pack(pady=(12, 4))
+        controls.extend([world_list, world_name, start_button])
 
         def refresh():
             if self.stop_event.is_set():
@@ -185,8 +249,10 @@ class MinecraftBuildServer:
                     'Save the current world and create a new flat world?'):
                 self.create_new_world()
 
-        tk.Button(root, text='新しいワールド', command=reset_world,
-                  width=22, height=2).pack(pady=12)
+        reset_button = tk.Button(root, text='New world while running',
+                     command=reset_world, width=24)
+        reset_button.pack(pady=8)
+        controls.append(reset_button)
         def close_panel():
             self.shutdown()
             root.destroy()
@@ -194,6 +260,23 @@ class MinecraftBuildServer:
         root.protocol('WM_DELETE_WINDOW', close_panel)
         root.after(0, refresh)
         root.mainloop()
+
+    def _create_selected_world(self, path, use_template):
+        self.world = ServerWorld(path)
+        if use_template:
+            template_path = BASE_DIR / 'Template.json'
+            if template_path.exists():
+                self.world.blocks.clear()
+                with template_path.open(encoding='utf-8') as template_file:
+                    data = json.load(template_file)
+                for entry in data.get('blocks', []):
+                    if len(entry) < 4:
+                        continue
+                    x, y, z, block_id = entry[:4]
+                    orientation = entry[4] if len(entry) > 4 else 'y'
+                    self.world.blocks[(int(x), int(y), int(z))] = [
+                        int(block_id), orientation]
+        self.world.save()
 
     def create_new_world(self):
         self.world.save()
