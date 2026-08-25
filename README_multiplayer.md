@@ -4,6 +4,7 @@
 
 - Mac: `MinecraftBuild.app`
 - Windows: `MinecraftBuildServer.exe`
+- Windows client: `MinecraftBuild.exe`
 
 利用者側にPythonやライブラリのインストールは不要です。配布用ファイルは、それぞれMac上またはWindows上でビルドします。
 
@@ -26,6 +27,12 @@ Windows Defender Firewallの確認が表示されたら、プライベートネ�
 MacとWindows PCを同じWi-FiまたはLANに接続します。Windows PCのLAN IP（例: `192.168.1.20`）を確認し、Mac版アプリのマルチプレイ画面へ入力します。
 
 ワールドの作成・保存はWindowsサーバー側で行います。サーバーを終了する前にコンソールへ `Ctrl+C` を入力してください。
+
+## Windowsクライアントから参加
+
+Windowsサーバーとは別のWindows PCで `MinecraftBuild.exe` を起動します。`MULTIPLAYER` を選び、WindowsサーバーのLAN IPとポート `25565` を入力します。
+
+Windowsサーバー1台に、Windowsクライアント2台を同時接続できます。Macクライアントを混ぜる場合も同じ接続方法です。サーバーの最大接続数は2台です。
 
 ## 一人プレイ
 
