@@ -239,13 +239,28 @@ class MinecraftBuildServer:
                      'y': position[1], 'z': position[2], 'block_id': block_id,
                      'orientation': orientation}
         else:
-            if position not in self.world.blocks:
+            actual_position = self._resolve_block_position(position)
+            if actual_position is None:
                 print(f'player {session.player_id} tried to break a missing block: {position}')
                 return
-            del self.world.blocks[position]
-            event = {'type': 'block_changed', 'action': 'break', 'x': position[0],
-                     'y': position[1], 'z': position[2]}
+            del self.world.blocks[actual_position]
+            event = {'type': 'block_changed', 'action': 'break',
+                     'x': actual_position[0], 'y': actual_position[1],
+                     'z': actual_position[2]}
         self._broadcast(event)
+
+    def _resolve_block_position(self, requested):
+        if requested in self.world.blocks:
+            return requested
+        nearest = None
+        nearest_distance = 0.75 ** 2
+        for position in self.world.blocks:
+            distance = sum((position[index] - requested[index]) ** 2
+                           for index in range(3))
+            if distance <= nearest_distance:
+                nearest = position
+                nearest_distance = distance
+        return nearest
 
     def _broadcast(self, message, exclude=None):
         with self.sessions_lock:
