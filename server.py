@@ -214,20 +214,20 @@ class MinecraftBuildServer:
         except (KeyError, TypeError, ValueError):
             session.send({'type': 'error', 'message': 'invalid block request'})
             return
-        if not 0 <= block_id <= 255:
-            return
         if any(abs(value) > WORLD_SIZE * 4 for value in position):
-            return
-        distance = math.sqrt(sum(
-            (position[index] - session.state[axis]) ** 2
-            for index, axis in enumerate(('x', 'y', 'z'))
-        ))
-        if distance > 8:
-            print(f'player {session.player_id} block request out of reach: '
-                  f'position={position}, player={session.state}, distance={distance:.2f}')
             return
 
         if message['type'] == 'place_block':
+            if not 0 <= block_id <= 255:
+                return
+            distance = math.sqrt(sum(
+                (position[index] - session.state[axis]) ** 2
+                for index, axis in enumerate(('x', 'y', 'z'))
+            ))
+            if distance > 8:
+                print(f'player {session.player_id} block request out of reach: '
+                      f'position={position}, player={session.state}, distance={distance:.2f}')
+                return
             if position in self.world.blocks:
                 print(f'player {session.player_id} tried to place an occupied block: {position}')
                 return
