@@ -238,13 +238,33 @@ class MinecraftBuildServer:
             network_thread = threading.Thread(target=self._serve_network, daemon=True)
             network_thread.start()
 
+        def refresh_world_list(select_path=None):
+            nonlocal world_paths
+            world_paths = sorted(saves_dir.glob('*.json'))
+            # Listboxがdisabled状態だとinsert/deleteが無視されるため、
+            # 更新中だけ一時的にnormalへ戻す。
+            was_disabled = world_list.cget('state') == tk.DISABLED
+            if was_disabled:
+                world_list.config(state=tk.NORMAL)
+            world_list.delete(0, tk.END)
+            for path in world_paths:
+                world_list.insert(tk.END, path.name)
+            if select_path is not None and select_path in world_paths:
+                world_list.selection_set(world_paths.index(select_path))
+            elif world_paths:
+                world_list.selection_set(0)
+            if was_disabled:
+                world_list.config(state=tk.DISABLED)
+
         start_button = tk.Button(root, text='Start server', command=start_server,
                                  width=24, height=2)
         start_button.pack(pady=(12, 4))
         load_button = tk.Button(root, text='Load selected world',
                     command=load_selected_world, width=24)
         load_button.pack(pady=3)
-        startup_controls.extend([world_list, world_name, start_button, load_button])
+        # world_listはサーバー稼働中も「既存ワールドから生成」で選択に使うため、
+        # startup_controlsには含めず常時選択可能にしておく。
+        startup_controls.extend([world_name, start_button, load_button])
 
         def refresh():
             if self.stop_event.is_set():
@@ -260,6 +280,8 @@ class MinecraftBuildServer:
                     'New world',
                     'Save the current world and create a new flat world?'):
                 self.create_new_world()
+                refresh_world_list(select_path=self.world.path)
+                status_label.config(text=f'Running: {self.world.path.name}', fg='green')
 
         reset_button = tk.Button(root, text='New world while running',
                      command=reset_world, width=24)
@@ -274,10 +296,35 @@ class MinecraftBuildServer:
                     'Regenerate from template',
                     'Save the current world and regenerate it from Template.json?'):
                 self.create_template_world()
+                refresh_world_list(select_path=self.world.path)
+                status_label.config(text=f'Running: {self.world.path.name}', fg='green')
 
         template_button = tk.Button(root, text='Regenerate from Template',
                                     command=reset_from_template, width=24)
         template_button.pack(pady=8)
+
+        def reset_from_existing():
+            selected = world_list.curselection()
+            if not selected:
+                messagebox.showerror('No world selected',
+                                     'Select a saved world from the list first.')
+                return
+            selected_path = world_paths[selected[0]]
+            if self.world is not None and selected_path == self.world.path:
+                messagebox.showinfo('Same world',
+                                    'That world is already running.')
+                return
+            if messagebox.askyesno(
+                    'Load existing world',
+                    f'Save the current world and switch to "{selected_path.name}"?'):
+                self.load_existing_world(selected_path)
+                refresh_world_list(select_path=self.world.path)
+                status_label.config(text=f'Running: {self.world.path.name}', fg='green')
+
+        existing_button = tk.Button(root, text='Load Existing World (running)',
+                                    command=reset_from_existing, width=24)
+        existing_button.pack(pady=8)
+
         def close_panel():
             self.shutdown()
             root.destroy()
@@ -348,6 +395,13 @@ class MinecraftBuildServer:
         self._save_world()
         self._broadcast_world_reset()
         print('template world regenerated and sent to connected players')
+
+    def load_existing_world(self, path):
+        self._save_world()
+        self.world = ServerWorld(path)
+        self._save_world()
+        self._broadcast_world_reset()
+        print(f'existing world "{Path(path).name}" loaded and sent to connected players')
 
     def _broadcast_world_reset(self):
         with self.sessions_lock:
