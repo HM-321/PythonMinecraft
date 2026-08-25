@@ -19,7 +19,7 @@ class PauseMenu:
 
         # 半透明背景（全画面）
         Entity(parent=self.root, model='quad',
-               color=color.rgba(0, 0, 0, 200),
+               color=color.rgba32(0, 0, 0, 200),
                scale=(window.aspect_ratio * 2 + 1, 2),
                z=0.5)
 

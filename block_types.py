@@ -12,7 +12,7 @@ BLOCK_TYPES = [
     ('Ice',   color.white, 'textures/ice.png'),
     ('Sand',  color.white, 'textures/sand.png'),
     ('Brick', color.white, 'textures/brick.png'),
-    ('Glass', color.rgba(180, 220, 240, 50), None),
+    ('Glass', color.rgba32(180, 220, 240, 50), None),
     ('Log',   color.white, {'atlas': 'textures/log_atlas.png',
                              'icon': 'textures/log_icon.png',
                              'rotatable': True}),
