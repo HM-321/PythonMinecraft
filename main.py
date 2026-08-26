@@ -44,6 +44,9 @@ application.asset_folder = Path(RESOURCE_DIR)
 window.color = color.azure
 
 
+from panda3d.core import WindowProperties, getModelPath
+
+
 def resource_path(relative_path):
     if getattr(sys, 'frozen', False):
         if sys.platform == 'darwin':
@@ -56,6 +59,7 @@ def resource_path(relative_path):
     return Path(base_path) / relative_path
 
 
+# ===== 内蔵フォント =====
 FONT_PATH = resource_path('fonts/JF-Dot-AyuMin18.ttf')
 FONT_DIR = FONT_PATH.parent
 
@@ -66,8 +70,15 @@ print('FONT_DIR =', FONT_DIR)
 if not FONT_PATH.is_file():
     raise FileNotFoundError(f'Font not found: {FONT_PATH}')
 
+# Ursina側
 application.fonts_folder = FONT_DIR
-Text.default_font = 'JF-Dot-AyuMin18.ttf'
+
+# Panda3D側
+model_path = getModelPath()
+model_path.append_path(str(FONT_DIR.resolve()))
+
+# フォント名を指定
+Text.default_font = FONT_PATH.name
 
 print('Text.default_font =', Text.default_font)
 
