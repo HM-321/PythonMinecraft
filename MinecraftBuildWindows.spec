@@ -7,6 +7,7 @@ datas = [
     ('Template.json', '.'),
     ('textures', 'textures'),
     ('sounds', 'sounds'),
+    ('fonts', 'fonts')
 ]
 datas += collect_data_files('ursina')
 datas += collect_data_files('panda3d')

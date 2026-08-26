@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 import time as _pytime
 from pathlib import Path
@@ -32,9 +33,16 @@ app = Ursina()
 application.asset_folder = Path(RESOURCE_DIR)
 window.color = color.azure
 
-FONT_PATH = os.path.expanduser('~/Library/Fonts/JF-Dot-AyuMin18.ttf')
-if os.path.exists(FONT_PATH):
-    Text.default_font = FONT_PATH
+def resource_path(relative_path):
+    if getattr(sys, 'frozen', False):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+
+
+FONT_DIR = Path(resource_path('fonts'))
+application.fonts_folder = FONT_DIR
+
+Text.default_font = 'JF-Dot-AyuMin18.ttf'
 from screeninfo import get_monitors
 m = get_monitors()[0]
 
