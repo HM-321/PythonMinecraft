@@ -12,7 +12,7 @@ class MultiplayerMenu:
              y=0.35, scale=2.2, color=color.white)
         Text(parent=self.root, text='SERVER IP', origin=(-0.5, 0),
              y=0.16, scale=1, color=color.light_gray)
-        self.host = InputField(parent=self.root, default_value='127.0.0.1',
+        self.host = InputField(parent=self.root, default_value='192.168.0.1',
                              y=0.08)
         Text(parent=self.root, text='PORT', origin=(-0.5, 0),
              y=-0.01, scale=1, color=color.light_gray)

@@ -18,7 +18,8 @@ DEFAULT_PORT = 25565
 APP_DIR = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, '_MEIPASS', APP_DIR))
 DEFAULT_WORLD_PATH = APP_DIR / 'saves' / 'server_world.json'
-MAX_PLAYERS = 2
+DEFAULT_MAX_PLAYERS = 8
+MAX_PLAYERS_LIMIT = 128
 SAVE_INTERVAL = 30.0
 
 
@@ -98,9 +99,10 @@ class ClientSession:
 
 
 class MinecraftBuildServer:
-    def __init__(self, host, port, world_path):
+    def __init__(self, host, port, world_path, max_players=DEFAULT_MAX_PLAYERS):
         self.host = host
         self.port = port
+        self.max_players = max(1, min(MAX_PLAYERS_LIMIT, int(max_players)))
         self.world = ServerWorld(world_path)
         self.sessions = {}
         self.sessions_lock = threading.Lock()
@@ -115,7 +117,7 @@ class MinecraftBuildServer:
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.listener.bind((self.host, self.port))
-        self.listener.listen(MAX_PLAYERS)
+        self.listener.listen(max(self.max_players, 8))
         self.listener.settimeout(1.0)
         print(f'MinecraftBuild server listening on {self.host}:{self.port}')
         last_save = time.monotonic()
@@ -129,7 +131,7 @@ class MinecraftBuildServer:
                     break
                 if connection is not None:
                     with self.sessions_lock:
-                        full = len(self.sessions) >= MAX_PLAYERS
+                        full = len(self.sessions) >= self.max_players
                     if full:
                         self._reject(connection, 'server_full')
                     else:
@@ -166,13 +168,64 @@ class MinecraftBuildServer:
         root.title('MinecraftBuild Server')
         root.geometry('520x640')
         root.resizable(False, False)
-        tk.Label(root, text='MinecraftBuild Server',
-                 font=('Arial', 16, 'bold')).pack(pady=(16, 2))
-        tk.Label(root, text=f'LAN port: {self.port}').pack(pady=(0, 10))
 
-        tk.Label(root, text='Select a world',
+        # 画面内に収まりきらないボタンをスクロールできるようにする。
+        outer = tk.Frame(root)
+        outer.pack(fill='both', expand=True)
+
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        scrollbar = tk.Scrollbar(outer, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+
+        content = tk.Frame(canvas)
+        canvas_window = canvas.create_window((0, 0), window=content, anchor='nw')
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+
+        def resize_content(event):
+            canvas.itemconfigure(canvas_window, width=event.width)
+
+        content.bind('<Configure>', update_scroll_region)
+        canvas.bind('<Configure>', resize_content)
+
+        def on_mousewheel(event):
+            # Windows: delta is usually +/-120.
+            # macOS trackpads can send smaller fractional-looking deltas.
+            delta = getattr(event, 'delta', 0)
+            if delta:
+                if abs(delta) < 120:
+                    units = -1 if delta > 0 else 1
+                else:
+                    units = -int(delta / 120)
+                canvas.yview_scroll(units, 'units')
+
+        canvas.bind_all('<MouseWheel>', on_mousewheel)
+        # Linux / some Tk builds
+        canvas.bind_all('<Button-4>', lambda _event: canvas.yview_scroll(-1, 'units'))
+        canvas.bind_all('<Button-5>', lambda _event: canvas.yview_scroll(1, 'units'))
+
+        tk.Label(content, text='MinecraftBuild Server',
+                 font=('Arial', 16, 'bold')).pack(pady=(16, 2))
+        tk.Label(content, text=f'LAN port: {self.port}').pack(pady=(0, 10))
+
+        max_players_var = tk.IntVar(value=self.max_players)
+        tk.Label(content, text='Maximum players').pack(anchor='w', padx=28)
+        max_players_spin = tk.Spinbox(
+            content,
+            from_=1,
+            to=MAX_PLAYERS_LIMIT,
+            textvariable=max_players_var,
+            width=8
+        )
+        max_players_spin.pack(anchor='w', padx=28, pady=(3, 8))
+
+        tk.Label(content, text='Select a world',
                  font=('Arial', 12, 'bold')).pack(anchor='w', padx=28)
-        world_list = tk.Listbox(root, height=10, width=58, exportselection=False)
+        world_list = tk.Listbox(content, height=10, width=58, exportselection=False)
         world_list.pack(padx=28, pady=6)
 
         saves_dir = APP_DIR / 'saves'
@@ -183,16 +236,16 @@ class MinecraftBuildServer:
         if world_paths:
             world_list.selection_set(0)
 
-        tk.Label(root, text='New world name (optional)').pack(anchor='w', padx=28)
-        world_name = tk.Entry(root, width=48)
+        tk.Label(content, text='New world name (optional)').pack(anchor='w', padx=28)
+        world_name = tk.Entry(content, width=48)
         world_name.pack(padx=28, pady=(3, 6))
         use_template = tk.BooleanVar(value=True)
-        tk.Checkbutton(root, text='Use Template.json for a new world',
+        tk.Checkbutton(content, text='Use Template.json for a new world',
                        variable=use_template).pack(anchor='w', padx=28)
 
-        player_label = tk.Label(root, text='Players: 0 / 2')
+        player_label = tk.Label(content, text=f'Players: 0 / {self.max_players}')
         player_label.pack(pady=(12, 4))
-        status_label = tk.Label(root, text='Choose a world, then start the server',
+        status_label = tk.Label(content, text='Choose a world, then start the server',
                                 fg='gray')
         status_label.pack(pady=3)
 
@@ -204,6 +257,18 @@ class MinecraftBuildServer:
                 control.config(state=state)
 
         def start_server():
+            try:
+                selected_max_players = int(max_players_var.get())
+            except (TypeError, ValueError):
+                messagebox.showerror('Invalid player count',
+                                     f'Enter a number from 1 to {MAX_PLAYERS_LIMIT}.')
+                return
+            if not 1 <= selected_max_players <= MAX_PLAYERS_LIMIT:
+                messagebox.showerror('Invalid player count',
+                                     f'Enter a number from 1 to {MAX_PLAYERS_LIMIT}.')
+                return
+            self.max_players = selected_max_players
+
             name = world_name.get().strip()
             if not name:
                 selected_path = self._next_world_path(saves_dir)
@@ -226,6 +291,18 @@ class MinecraftBuildServer:
             network_thread.start()
 
         def load_selected_world():
+            try:
+                selected_max_players = int(max_players_var.get())
+            except (TypeError, ValueError):
+                messagebox.showerror('Invalid player count',
+                                     f'Enter a number from 1 to {MAX_PLAYERS_LIMIT}.')
+                return
+            if not 1 <= selected_max_players <= MAX_PLAYERS_LIMIT:
+                messagebox.showerror('Invalid player count',
+                                     f'Enter a number from 1 to {MAX_PLAYERS_LIMIT}.')
+                return
+            self.max_players = selected_max_players
+
             selected = world_list.curselection()
             if not selected:
                 messagebox.showerror('No world selected',
@@ -256,10 +333,10 @@ class MinecraftBuildServer:
             if was_disabled:
                 world_list.config(state=tk.DISABLED)
 
-        start_button = tk.Button(root, text='Start server', command=start_server,
+        start_button = tk.Button(content, text='Start server', command=start_server,
                                  width=24, height=2)
         start_button.pack(pady=(12, 4))
-        load_button = tk.Button(root, text='Load selected world',
+        load_button = tk.Button(content, text='Load selected world',
                     command=load_selected_world, width=24)
         load_button.pack(pady=3)
         # world_listはサーバー稼働中も「既存ワールドから生成」で選択に使うため、
@@ -272,8 +349,54 @@ class MinecraftBuildServer:
                 return
             with self.sessions_lock:
                 count = len(self.sessions)
-            player_label.config(text=f'Players: {count} / {MAX_PLAYERS}')
+            player_label.config(text=f'Players: {count} / {self.max_players}')
             root.after(500, refresh)
+
+        def delete_selected_world():
+            selected = world_list.curselection()
+            if not selected:
+                messagebox.showerror(
+                    'No world selected',
+                    'Select a saved world first.'
+                )
+                return
+
+            selected_path = world_paths[selected[0]]
+
+            if self.listener is not None:
+                messagebox.showerror(
+                    'Server is running',
+                    'Stop the server before deleting the running world.'
+                )
+                return
+
+            if not selected_path.exists():
+                refresh_world_list()
+                messagebox.showinfo(
+                    'World not found',
+                    'The selected world no longer exists.'
+                )
+                return
+
+            if not messagebox.askyesno(
+                    'Delete world',
+                    f'Delete "{selected_path.stem}"?\n\n'
+                    'This cannot be undone.'):
+                return
+
+            try:
+                selected_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                messagebox.showerror(
+                    'Delete failed',
+                    f'Could not delete the world.\n\n{exc}'
+                )
+                return
+
+            refresh_world_list()
+            status_label.config(text='World deleted', fg='gray')
 
         def reset_world():
             if messagebox.askyesno(
@@ -283,7 +406,7 @@ class MinecraftBuildServer:
                 refresh_world_list(select_path=self.world.path)
                 status_label.config(text=f'Running: {self.world.path.name}', fg='green')
 
-        reset_button = tk.Button(root, text='New world while running',
+        reset_button = tk.Button(content, text='New world while running',
                      command=reset_world, width=24)
         reset_button.pack(pady=8)
 
@@ -299,7 +422,7 @@ class MinecraftBuildServer:
                 refresh_world_list(select_path=self.world.path)
                 status_label.config(text=f'Running: {self.world.path.name}', fg='green')
 
-        template_button = tk.Button(root, text='Regenerate from Template',
+        template_button = tk.Button(content, text='Regenerate from Template',
                                     command=reset_from_template, width=24)
         template_button.pack(pady=8)
 
@@ -321,9 +444,13 @@ class MinecraftBuildServer:
                 refresh_world_list(select_path=self.world.path)
                 status_label.config(text=f'Running: {self.world.path.name}', fg='green')
 
-        existing_button = tk.Button(root, text='Load Existing World (running)',
+        existing_button = tk.Button(content, text='Load Existing World (running)',
                                     command=reset_from_existing, width=24)
         existing_button.pack(pady=8)
+
+        delete_button = tk.Button(content, text='Delete Selected World',
+                                  command=delete_selected_world, width=24)
+        delete_button.pack(pady=8)
 
         def close_panel():
             self.shutdown()
@@ -594,8 +721,9 @@ def main():
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
     parser.add_argument('--world', default=str(DEFAULT_WORLD_PATH))
+    parser.add_argument('--max-players', type=int, default=DEFAULT_MAX_PLAYERS)
     args = parser.parse_args()
-    server = MinecraftBuildServer(args.host, args.port, args.world)
+    server = MinecraftBuildServer(args.host, args.port, args.world, args.max_players)
     signal.signal(signal.SIGINT, lambda *_: server.shutdown())
     server.serve_forever()
 
