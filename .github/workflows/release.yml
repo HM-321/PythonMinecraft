@@ -41,16 +41,16 @@ jobs:
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" |
+            Where-Object { $_.Name -eq "MinecraftBuild.exe" } |
             Select-Object -First 1
 
           if (-not $exe) {
-            Write-Error "No .exe file was found in dist."
+            Write-Error "MinecraftBuild.exe was not found."
             Get-ChildItem -Path "dist" -Recurse
             exit 1
           }
 
-          Write-Host "Found executable:"
-          Write-Host $exe.FullName
+          Write-Host "Found: $($exe.FullName)"
 
           $packageDir = Split-Path $exe.FullName -Parent
 
@@ -92,6 +92,7 @@ jobs:
       - name: Build
         run: |
           python -m PyInstaller --clean --noconfirm MinecraftBuildServer.spec
+
       - name: Package
         shell: pwsh
         run: |
@@ -103,6 +104,8 @@ jobs:
             Get-ChildItem -Path "dist" -Recurse
             exit 1
           }
+
+          Write-Host "Found: $($exe.FullName)"
 
           $packageDir = Split-Path $exe.FullName -Parent
 
@@ -147,6 +150,8 @@ jobs:
 
       - name: Package
         run: |
+          test -d "dist/MinecraftBuild/MinecraftBuild.app"
+
           ditto -c -k --sequesterRsrc --keepParent \
             "dist/MinecraftBuild/MinecraftBuild.app" \
             "MinecraftBuild-macOS.zip"
@@ -212,6 +217,7 @@ jobs:
 
   release:
     name: Create GitHub Release
+
     needs:
       - build-windows-client
       - build-windows-server
@@ -241,5 +247,6 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             release-assets/*.zip \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
