@@ -3,13 +3,22 @@ import sys
 import shutil
 import time as _pytime
 from pathlib import Path
+
 from ursina import *
 from ursina import application
 from panda3d.core import WindowProperties
 
 from app_runtime import install_crash_logging
 from settings import settings
-from config import RESOURCE_DIR, SAVE_DIR, TEMPLATE_PATH, SCREENSHOTS_DIR, WORLD_SIZE, REACH, write_resource_log
+from config import (
+    RESOURCE_DIR,
+    SAVE_DIR,
+    TEMPLATE_PATH,
+    SCREENSHOTS_DIR,
+    WORLD_SIZE,
+    REACH,
+    write_resource_log,
+)
 from config import CLICK_INTERVAL, SCROLL_INTERVAL
 from block_types import BLOCK_TYPES
 from ui import Crosshair, Hotbar, SelectionFrame, DebugOverlay
@@ -22,6 +31,7 @@ from block_particles import BlockParticles
 from multiplayer_client import MultiplayerClient
 from player_model import RemotePlayer
 
+
 install_crash_logging()
 os.makedirs(SAVE_DIR, exist_ok=True)
 os.chdir(RESOURCE_DIR)
@@ -33,6 +43,7 @@ app = Ursina()
 application.asset_folder = Path(RESOURCE_DIR)
 window.color = color.azure
 
+
 def resource_path(relative_path):
     if getattr(sys, 'frozen', False):
         if sys.platform == 'darwin':
@@ -42,15 +53,21 @@ def resource_path(relative_path):
     else:
         base_path = Path(__file__).resolve().parent
 
-    return str(base_path / relative_path)
+    return Path(base_path) / relative_path
 
 
 FONT_PATH = resource_path('fonts/JF-Dot-AyuMin18.ttf')
+FONT_DIR = FONT_PATH.parent
 
-if not os.path.isfile(FONT_PATH):
+print('FONT_PATH =', FONT_PATH)
+print('FONT_EXISTS =', FONT_PATH.is_file())
+print('FONT_DIR =', FONT_DIR)
+
+if not FONT_PATH.is_file():
     raise FileNotFoundError(f'Font not found: {FONT_PATH}')
 
-Text.default_font = FONT_PATH
+application.fonts_folder = FONT_DIR
+Text.default_font = 'JF-Dot-AyuMin18.ttf'
 
 print('Text.default_font =', Text.default_font)
 
