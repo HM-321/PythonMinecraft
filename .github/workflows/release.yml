@@ -40,9 +40,24 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
+          $exe = Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            Write-Error "No .exe file was found in dist."
+            Get-ChildItem -Path "dist" -Recurse
+            exit 1
+          }
+
+          Write-Host "Found executable:"
+          Write-Host $exe.FullName
+
+          $packageDir = Split-Path $exe.FullName -Parent
+
           Compress-Archive `
-            -Path "dist/MinecraftBuild/*" `
-            -DestinationPath "MinecraftBuild-Windows.zip"
+            -Path "$packageDir\*" `
+            -DestinationPath "MinecraftBuild-Windows.zip" `
+            -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -77,29 +92,24 @@ jobs:
       - name: Build
         run: |
           python -m PyInstaller --clean --noconfirm MinecraftBuildServer.spec
-
       - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "MinecraftBuildServer-Windows" | Out-Null
+          $exe = Get-ChildItem -Path "dist" -Recurse -Filter "MinecraftBuildServer.exe" |
+            Select-Object -First 1
 
-          if (Test-Path "dist/MinecraftBuildServer/MinecraftBuildServer.exe") {
-            Copy-Item `
-              "dist/MinecraftBuildServer/MinecraftBuildServer.exe" `
-              "MinecraftBuildServer-Windows/"
-          }
-          elseif (Test-Path "dist/MinecraftBuildServer.exe") {
-            Copy-Item `
-              "dist/MinecraftBuildServer.exe" `
-              "MinecraftBuildServer-Windows/"
-          }
-          else {
+          if (-not $exe) {
             Write-Error "MinecraftBuildServer.exe was not found."
+            Get-ChildItem -Path "dist" -Recurse
+            exit 1
           }
+
+          $packageDir = Split-Path $exe.FullName -Parent
 
           Compress-Archive `
-            -Path "MinecraftBuildServer-Windows/*" `
-            -DestinationPath "MinecraftBuildServer-Windows.zip"
+            -Path "$packageDir\*" `
+            -DestinationPath "MinecraftBuildServer-Windows.zip" `
+            -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
