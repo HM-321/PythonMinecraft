@@ -35,14 +35,25 @@ window.color = color.azure
 
 def resource_path(relative_path):
     if getattr(sys, 'frozen', False):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+        if sys.platform == 'darwin':
+            base_path = Path(sys.executable).resolve().parent.parent / 'Resources'
+        else:
+            base_path = Path(sys._MEIPASS)
+    else:
+        base_path = Path(__file__).resolve().parent
+
+    return str(base_path / relative_path)
 
 
-FONT_DIR = Path(resource_path('fonts'))
-application.fonts_folder = FONT_DIR
+FONT_PATH = resource_path('fonts/JF-Dot-AyuMin18.ttf')
 
-Text.default_font = 'JF-Dot-AyuMin18.ttf'
+if not os.path.isfile(FONT_PATH):
+    raise FileNotFoundError(f'Font not found: {FONT_PATH}')
+
+Text.default_font = FONT_PATH
+
+print('Text.default_font =', Text.default_font)
+
 from screeninfo import get_monitors
 m = get_monitors()[0]
 

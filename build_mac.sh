@@ -9,7 +9,12 @@ if [[ "$(uname -m)" != "arm64" ]]; then
 fi
 
 python3 -m pip install -r requirements.txt
-rm -rf build/MinecraftBuild dist/MinecraftBuild dist/MinecraftBuild.app dist/MinecraftBuild_Data
+
+rm -rf build/MinecraftBuild \
+       dist/MinecraftBuild \
+       dist/MinecraftBuild.app \
+       dist/MinecraftBuild_Data
+
 python3 -m PyInstaller --clean --noconfirm MinecraftBuild.spec
 
 if [[ ! -d dist/MinecraftBuild.app ]]; then
@@ -17,12 +22,20 @@ if [[ ! -d dist/MinecraftBuild.app ]]; then
   exit 1
 fi
 
+# Copy resources into the app bundle
 ditto textures dist/MinecraftBuild.app/Contents/Resources/textures
 ditto sounds dist/MinecraftBuild.app/Contents/Resources/sounds
+ditto fonts dist/MinecraftBuild.app/Contents/Resources/fonts
 ditto Template.json dist/MinecraftBuild.app/Contents/Resources/Template.json
 
+# Verify required resources
 if [[ ! -f dist/MinecraftBuild.app/Contents/Resources/textures/dirt.png ]]; then
   echo "Build failed: textures were not copied into MinecraftBuild.app."
+  exit 1
+fi
+
+if [[ ! -f dist/MinecraftBuild.app/Contents/Resources/fonts/JF-Dot-AyuMin18.ttf ]]; then
+  echo "Build failed: font was not copied into MinecraftBuild.app."
   exit 1
 fi
 
