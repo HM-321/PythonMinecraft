@@ -82,6 +82,7 @@ class ClientSession:
             'pitch': 0,
             'gravity_on': True,
             'moving': False,
+            'sneaking': False,
         }
 
     def send(self, message):
@@ -609,7 +610,7 @@ class MinecraftBuildServer:
             value = message.get(key)
             if isinstance(value, (int, float)):
                 session.state[key] = max(-10000, min(10000, float(value)))
-        for key in ('gravity_on', 'moving'):
+        for key in ('gravity_on', 'moving', 'sneaking'):
             if isinstance(message.get(key), bool):
                 session.state[key] = message[key]
 

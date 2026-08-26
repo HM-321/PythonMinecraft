@@ -201,7 +201,9 @@ def _update_remote_player(data):
     remote.update(
         (data.get('x', 0), data.get('y', 0), data.get('z', 0)),
         yaw=data.get('yaw', 0),
+        pitch=data.get('pitch', 0),
         moving=data.get('moving', False),
+        sneaking=data.get('sneaking', False),
         dt=time.dt,
     )
 
@@ -612,6 +614,7 @@ def update():
                     'pitch': player.pitch,
                     'gravity_on': player.gravity_on,
                     'moving': player.velocity_h.length() > 0.1,
+                    'sneaking': player.sneaking,
                 })
             except (OSError, RuntimeError):
                 _handle_network_disconnect()

@@ -42,7 +42,7 @@ class MultiplayerClient:
     def send_player_state(self, state):
         message = {'type': 'player_state'}
         message.update({key: state[key] for key in
-                        ('x', 'y', 'z', 'yaw', 'pitch', 'gravity_on', 'moving')
+                        ('x', 'y', 'z', 'yaw', 'pitch', 'gravity_on', 'moving', 'sneaking')
                         if key in state})
         self._send(message)
 
