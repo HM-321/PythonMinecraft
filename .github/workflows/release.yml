@@ -1,0 +1,189 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-client:
+    name: Windows Client
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: cmd
+        run: py -m pip install -r requirements.txt
+
+      - name: Build
+        shell: cmd
+        run: |
+          py -m PyInstaller --clean --noconfirm MinecraftBuildWindows.spec
+          if not exist "dist\MinecraftBuild\MinecraftBuild.exe" exit /b 1
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "dist/MinecraftBuild/*" `
+            -DestinationPath "MinecraftBuild-Windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MinecraftBuild-Windows
+          path: MinecraftBuild-Windows.zip
+
+  build-windows-server:
+    name: Windows Server
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: cmd
+        run: py -m pip install -r requirements.txt
+
+      - name: Build
+        shell: cmd
+        run: |
+          py -m PyInstaller --clean --noconfirm MinecraftBuildServer.spec
+          if not exist "dist\MinecraftBuildServer.exe" exit /b 1
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "MinecraftBuildServer-Windows" | Out-Null
+          Copy-Item "dist/MinecraftBuildServer.exe" "MinecraftBuildServer-Windows/"
+          Compress-Archive `
+            -Path "MinecraftBuildServer-Windows/*" `
+            -DestinationPath "MinecraftBuildServer-Windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MinecraftBuildServer-Windows
+          path: MinecraftBuildServer-Windows.zip
+
+  build-macos-client:
+    name: macOS Client
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        shell: bash
+        run: |
+          chmod +x build_mac.sh
+          ./build_mac.sh
+
+      - name: Package
+        shell: bash
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "dist/MinecraftBuild/MinecraftBuild.app" \
+            "MinecraftBuild-macOS.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MinecraftBuild-macOS
+          path: MinecraftBuild-macOS.zip
+
+  build-macos-server:
+    name: macOS Server
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python3 -m pip install -r requirements.txt
+
+      - name: Build server app
+        shell: bash
+        run: |
+          rm -rf build/MinecraftBuildServer dist/MinecraftBuildServer dist/MinecraftBuildServer.app
+
+          python3 -m PyInstaller \
+            --clean \
+            --noconfirm \
+            --windowed \
+            --name MinecraftBuildServer \
+            --add-data "Template.json:." \
+            server.py
+
+          test -d "dist/MinecraftBuildServer.app"
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p "package/MinecraftBuildServer.app/Contents/Resources"
+          ditto "dist/MinecraftBuildServer.app" "package/MinecraftBuildServer.app"
+
+          ditto "Template.json" \
+            "package/MinecraftBuildServer.app/Contents/Resources/Template.json"
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "package/MinecraftBuildServer.app" \
+            "MinecraftBuildServer-macOS.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MinecraftBuildServer-macOS
+          path: MinecraftBuildServer-macOS.zip
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - build-windows-client
+      - build-windows-server
+      - build-macos-client
+      - build-macos-server
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -lah release-assets
+          gh release create "${GITHUB_REF_NAME}" \
+            release-assets/*.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
