@@ -6,4 +6,5 @@ psutil
 Pillow
 hidapi
 pysdl2
+pysdl2-dll
 pyinstaller
