@@ -23,6 +23,18 @@ MAX_PLAYERS_LIMIT = 128
 SAVE_INTERVAL = 30.0
 
 
+def get_local_ip():
+    """Return the LAN address other computers can use to reach this server."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(('8.8.8.8', 80))
+        return probe.getsockname()[0]
+    except OSError:
+        return '127.0.0.1'
+    finally:
+        probe.close()
+
+
 class ServerWorld:
     def __init__(self, path):
         self.path = Path(path)
@@ -120,7 +132,8 @@ class MinecraftBuildServer:
         self.listener.bind((self.host, self.port))
         self.listener.listen(max(self.max_players, 8))
         self.listener.settimeout(1.0)
-        print(f'MinecraftBuild server listening on {self.host}:{self.port}')
+        display_host = get_local_ip() if self.host in ('', '0.0.0.0') else self.host
+        print(f'MinecraftBuild server listening on {display_host}:{self.port}')
         last_save = time.monotonic()
         try:
             while not self.stop_event.is_set():
@@ -212,6 +225,14 @@ class MinecraftBuildServer:
         tk.Label(content, text='MinecraftBuild Server',
                  font=('Arial', 16, 'bold')).pack(pady=(16, 2))
         tk.Label(content, text=f'LAN port: {self.port}').pack(pady=(0, 10))
+        display_host = get_local_ip() if self.host in ('', '0.0.0.0') else self.host
+        address_label = tk.Label(
+            content,
+            text=f'Connect from another PC: {display_host}:{self.port}',
+            font=('Arial', 11, 'bold'),
+            fg='green',
+        )
+        address_label.pack(pady=(0, 12))
 
         max_players_var = tk.IntVar(value=self.max_players)
         tk.Label(content, text='Maximum players').pack(anchor='w', padx=28)
@@ -286,7 +307,9 @@ class MinecraftBuildServer:
                     return
                 self._create_selected_world(selected_path, use_template.get())
 
-            status_label.config(text=f'Running: {selected_path.name}', fg='green')
+            status_label.config(
+                text=f'Running: {selected_path.name}  ({display_host}:{self.port})',
+                fg='green')
             set_controls_enabled(False)
             network_thread = threading.Thread(target=self._serve_network, daemon=True)
             network_thread.start()
@@ -311,7 +334,9 @@ class MinecraftBuildServer:
                 return
             selected_path = world_paths[selected[0]]
             self.world = ServerWorld(selected_path)
-            status_label.config(text=f'Running: {selected_path.name}', fg='green')
+            status_label.config(
+                text=f'Running: {selected_path.name}  ({display_host}:{self.port})',
+                fg='green')
             set_controls_enabled(False)
             network_thread = threading.Thread(target=self._serve_network, daemon=True)
             network_thread.start()

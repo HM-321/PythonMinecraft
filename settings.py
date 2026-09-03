@@ -10,6 +10,8 @@ DEFAULT_SETTINGS = {
     'bgm_volume': 0.3,
     'se_volume': 0.5,
     'max_fps': 30,
+    'last_server_host': '192.168.0.1',
+    'last_server_port': 25565,
     'key_jump': 'space',
     'key_sneak': 'left shift',
     'key_sprint': 'left control',

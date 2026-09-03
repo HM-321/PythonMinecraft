@@ -1,5 +1,6 @@
 from ursina import Button, Entity, Text, camera, color, destroy
 from ursina.prefabs.input_field import InputField
+from settings import settings
 
 
 class MultiplayerMenu:
@@ -12,11 +13,13 @@ class MultiplayerMenu:
              y=0.35, scale=2.2, color=color.white)
         Text(parent=self.root, text='SERVER IP', origin=(-0.5, 0),
              y=0.16, scale=1, color=color.light_gray)
-        self.host = InputField(parent=self.root, default_value='192.168.0.1',
+        self.host = InputField(parent=self.root,
+                     default_value=settings.get('last_server_host'),
                              y=0.08)
         Text(parent=self.root, text='PORT', origin=(-0.5, 0),
              y=-0.01, scale=1, color=color.light_gray)
-        self.port = InputField(parent=self.root, default_value='25565',
+        self.port = InputField(parent=self.root,
+                     default_value=str(settings.get('last_server_port')),
                              y=-0.09)
         self.message = Text(parent=self.root, text='', origin=(0, 0),
                             y=-0.21, scale=0.9, color=color.yellow)
@@ -35,6 +38,9 @@ class MultiplayerMenu:
         except ValueError:
             self.message.text = 'INVALID SERVER ADDRESS'
             return
+        settings.set('last_server_host', host)
+        settings.set('last_server_port', port)
+        settings.save()
         self.message.text = 'CONNECTING...'
         self.on_join(host, port, self)
 

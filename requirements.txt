@@ -5,5 +5,4 @@ screeninfo
 psutil
 Pillow
 hidapi
-pysdl2
 pyinstaller
