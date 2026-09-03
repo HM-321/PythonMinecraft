@@ -14,12 +14,12 @@ class MultiplayerMenu:
         Text(parent=self.root, text='SERVER IP', origin=(-0.5, 0),
              y=0.16, scale=1, color=color.light_gray)
         self.host = InputField(parent=self.root,
-                     default_value=settings.get('last_server_host'),
+                             default_value=settings.get('last_server_host') or '',
                              y=0.08)
         Text(parent=self.root, text='PORT', origin=(-0.5, 0),
              y=-0.01, scale=1, color=color.light_gray)
         self.port = InputField(parent=self.root,
-                     default_value=str(settings.get('last_server_port')),
+                             default_value=str(settings.get('last_server_port')),
                              y=-0.09)
         self.message = Text(parent=self.root, text='', origin=(0, 0),
                             y=-0.21, scale=0.9, color=color.yellow)
