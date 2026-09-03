@@ -13,7 +13,8 @@ python3 -m pip install -r requirements.txt
 rm -rf build/MinecraftBuild \
        dist/MinecraftBuild \
        dist/MinecraftBuild.app \
-       dist/MinecraftBuild_Data
+  dist/MinecraftBuild_Data \
+  dist/mac/client
 
 python3 -m PyInstaller --clean --noconfirm MinecraftBuild.spec
 
@@ -39,9 +40,7 @@ if [[ ! -f dist/MinecraftBuild.app/Contents/Resources/fonts/JF-Dot-AyuMin18.ttf 
   exit 1
 fi
 
-rm -rf dist/MinecraftBuild
-mkdir -p dist/MinecraftBuild
-ditto dist/MinecraftBuild.app dist/MinecraftBuild/MinecraftBuild.app
+mkdir -p dist/mac/client
+ditto dist/MinecraftBuild.app dist/mac/client/MinecraftBuild.app
 
-echo "Built: dist/MinecraftBuild.app"
-echo "Package: dist/MinecraftBuild/MinecraftBuild.app"
+echo "Built: dist/mac/client/MinecraftBuild.app"

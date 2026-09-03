@@ -2,16 +2,17 @@
 
 ## 配布物
 
-- Mac: `MinecraftBuild.app`
-- Windows: `MinecraftBuildServer.exe`
-- Windows client: `MinecraftBuild.exe`
+- Mac client: `dist/mac/client/MinecraftBuild.app`
+- Mac server: `dist/mac/server/MinecraftBuildServer.app`
+- Windows server: `dist\server\MinecraftBuildServer\MinecraftBuildServer.exe` と同じフォルダー一式
+- Windows client: `dist\client\MinecraftBuild.exe`
 
 利用者側にPythonやライブラリのインストールは不要です。配布用ファイルは、それぞれMac上またはWindows上でビルドします。
 
 ## Windowsサーバーの起動
 
-1. サーバー用フォルダーに `MinecraftBuildServer.exe` を置きます。
-2. `MinecraftBuildServer.exe` をダブルクリックします。ワールドを指定しない場合は `saves\\server_world.json` が自動作成されます。
+1. `dist\\server\\MinecraftBuildServer` フォルダーをサーバー用PCへ丸ごとコピーします。
+2. フォルダー内の `MinecraftBuildServer.exe` をダブルクリックします。ワールドを指定しない場合は `saves\\server_world.json` が自動作成されます。
 3. 既存ワールドを使う場合だけ、コマンドプロンプトで次を実行します。
 
 ```text
@@ -34,7 +35,7 @@ MacとWindows PCを同じWi-FiまたはLANに接続します。Windows PCのLAN 
 
 ## Windowsクライアントから参加
 
-Windowsサーバーとは別のWindows PCで `MinecraftBuild.exe` を起動します。`MULTIPLAYER` を選び、WindowsサーバーのLAN IPとポート `25565` を入力します。
+Windowsサーバーとは別のWindows PCで `dist\\client\\MinecraftBuild.exe` を起動します。`MULTIPLAYER` を選び、WindowsサーバーのLAN IPとポート `25565` を入力します。
 
 Windowsサーバー1台に、Windowsクライアント2台を同時接続できます。Macクライアントを混ぜる場合も同じ接続方法です。サーバーの最大接続数は2台です。
 

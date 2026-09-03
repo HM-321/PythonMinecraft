@@ -13,7 +13,8 @@ python3 -m pip install -r requirements.txt
 rm -rf \
   build/MinecraftBuildServer \
   dist/MinecraftBuildServer \
-  dist/MinecraftBuildServer.app
+  dist/MinecraftBuildServer.app \
+  dist/mac/server
 
 python3 -m PyInstaller \
   --clean \
@@ -35,12 +36,10 @@ if [[ ! -d dist/MinecraftBuildServer.app ]]; then
   exit 1
 fi
 
-rm -rf dist/MinecraftBuildServer
-mkdir -p dist/MinecraftBuildServer
+mkdir -p dist/mac/server
 
 ditto \
   dist/MinecraftBuildServer.app \
-  dist/MinecraftBuildServer/MinecraftBuildServer.app
+  dist/mac/server/MinecraftBuildServer.app
 
-echo "Built: dist/MinecraftBuildServer.app"
-echo "Package: dist/MinecraftBuildServer/MinecraftBuildServer.app"
+echo "Built: dist/mac/server/MinecraftBuildServer.app"

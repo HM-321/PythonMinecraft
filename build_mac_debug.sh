@@ -9,17 +9,19 @@ if [[ "$(uname -m)" != "arm64" ]]; then
 fi
 
 python3 -m pip install -r requirements.txt
-rm -rf build/MinecraftBuildDebug dist/MinecraftBuildDebug
+rm -rf build/MinecraftBuildDebug dist/MinecraftBuildDebug dist/mac/debug
 python3 -m PyInstaller --clean --noconfirm MinecraftBuildDebug.spec
 
-ditto textures dist/MinecraftBuildDebug/textures
-ditto sounds dist/MinecraftBuildDebug/sounds
-ditto Template.json dist/MinecraftBuildDebug/Template.json
+mkdir -p dist/mac/debug
+ditto dist/MinecraftBuildDebug dist/mac/debug/MinecraftBuildDebug
+ditto textures dist/mac/debug/MinecraftBuildDebug/textures
+ditto sounds dist/mac/debug/MinecraftBuildDebug/sounds
+ditto Template.json dist/mac/debug/MinecraftBuildDebug/Template.json
 
-if [[ ! -f dist/MinecraftBuildDebug/textures/dirt.png ]]; then
+if [[ ! -f dist/mac/debug/MinecraftBuildDebug/textures/dirt.png ]]; then
   echo "Debug build failed: textures were not copied."
   exit 1
 fi
 
-echo "Built: dist/MinecraftBuildDebug/MinecraftBuildDebug"
-echo "Run from Terminal: ./dist/MinecraftBuildDebug/MinecraftBuildDebug"
+echo "Built: dist/mac/debug/MinecraftBuildDebug/MinecraftBuildDebug"
+echo "Run from Terminal: ./dist/mac/debug/MinecraftBuildDebug/MinecraftBuildDebug"
