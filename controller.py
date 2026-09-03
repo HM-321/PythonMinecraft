@@ -1,88 +1,25 @@
-import glob
-import os
-import sys
+import hid
+import struct
 import threading
 import time
 
-
-def _bootstrap_sdl2_dll_path():
-    """
-    pysdl2-dll はApple SiliconなどでSDL2のバイナリを持たない
-    "source-only" 状態でインストールされてしまうことがあり、その場合
-    pysdl2は無効になってしまう(pysdl2-dll is installed as
-    source-only ... と警告が出る)。
-
-    その場合でも、同じ環境の pygame が同梱している SDL2 の共有ライブラリ
-    (pygame自体は正常に動いている = そのSDL2は読み込める実体)を
-    PYSDL2_DLL_PATH として教えてやることで、pysdl2にも同じものを
-    使わせることができる。
-    """
-    if os.environ.get('PYSDL2_DLL_PATH'):
-        return
-    try:
-        import pygame
-        pygame_dir = os.path.dirname(pygame.__file__)
-    except Exception:
-        return
-
-    patterns = ['*SDL2*.dylib', '*SDL2*.so*', 'SDL2.dll', '*SDL2*.dll']
-    for pattern in patterns:
-        matches = glob.glob(os.path.join(pygame_dir, '**', pattern), recursive=True)
-        if matches:
-            os.environ['PYSDL2_DLL_PATH'] = os.path.dirname(matches[0])
-            break
-
-
-_bootstrap_sdl2_dll_path()
-
 try:
     import sdl2
-except Exception as _sdl2_import_error:  # ImportError以外(共有ライブラリ未検出時のRuntimeErrorなど)も捕捉
-    _sdl2_import_error_msg = str(_sdl2_import_error)
+except ImportError:
     sdl2 = None
-else:
-    _sdl2_import_error_msg = None
-
-
-def _log(msg):
-    """コンソールが存在しないビルド(windowed/noconsole)でも例外を出さずに出力する"""
-    try:
-        print(msg)
-    except Exception:
-        pass
-
-
-if _sdl2_import_error_msg:
-    _log(f'sdl2 の読み込みに失敗しました。コントローラーは無効になります: {_sdl2_import_error_msg}')
 
 
 class Controller:
-    """
-    SDL2 の GameController API を使ってコントローラーを扱うクラス。
-
-    以前は特定のVID/PIDを直接指定してHIDレポートをバイト単位で解析する
-    実装だったため、対応できる機種が実質1〜2種類に限られ、環境(USBポート
-    やOS、機種)を変えると認識できなくなっていた。
-
-    SDL2にはXbox系・PlayStation系・Nintendo Switch Pro・8BitDoなど
-    多くの市販ゲームパッドのボタン配置を統一的に扱うためのマッピングDB
-    (SDL_GameControllerDB)が内蔵されており、VID/PIDやレポート形式を
-    こちらで意識しなくても「A/B/X/Y」「LB/RB」「十字キー」「スティック」
-    「トリガー」という共通の名前で入力を取得できる。これによりケーブル
-    接続・Bluetooth接続を問わず、多くのコントローラーで動作する。
-    """
-
-    # 実行ファイルと同じ場所に gamecontrollerdb.txt を置いておくと、
-    # SDL標準DBに無い/古い機種のマッピングを追加で読み込める(任意)。
-    EXTRA_MAPPINGS_FILENAME = 'gamecontrollerdb.txt'
+    VID = 0x45e
+    PID = 0xb12
+    LOGICOOL_VID = 0x46d
+    LOGICOOL_PID = 0xc219
 
     def __init__(self):
         self.connected = False
         self.state = None
-        self.name = None
-
-        self._ctrl = None
-        self._sdl_ready = False
+        self.dev = None
+        self.sdl_joy = None
 
         self._prev_buttons = {}
         self._button_pressed_this_frame = {}
@@ -96,106 +33,107 @@ class Controller:
         self.deadzone_left = 0.15
         self.deadzone_right = 0.15
 
-        self._init_sdl()
         self._detect()
 
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
 
-    # ------------------------------------------------------------------
-    # 初期化・検出
-    # ------------------------------------------------------------------
-    def _init_sdl(self):
-        if sdl2 is None:
-            _log('コントローラー機能を使うには pysdl2 が必要です '
-                  '(pip install pysdl2 pysdl2-dll)')
-            self._sdl_ready = False
-            return
-        try:
-            sdl2.SDL_SetHint(sdl2.SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, b'1')
-            sdl2.SDL_Init(sdl2.SDL_INIT_GAMECONTROLLER | sdl2.SDL_INIT_JOYSTICK)
-            self._sdl_ready = True
-            self._load_extra_mappings()
-        except Exception as e:
-            _log(f'SDL init error: {e}')
-            self._sdl_ready = False
-
-    def _load_extra_mappings(self):
-        """実行ファイルと同じフォルダに gamecontrollerdb.txt があれば読み込む"""
-        try:
-            base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            path = os.path.join(base_dir, self.EXTRA_MAPPINGS_FILENAME)
-            if os.path.isfile(path):
-                n = sdl2.SDL_GameControllerAddMappingsFromFile(path.encode('utf-8'))
-                if n >= 0:
-                    _log(f'コントローラーマッピングを追加読み込み: {n}件 ({path})')
-        except Exception as e:
-            _log(f'追加マッピング読み込みエラー: {e}')
-
     def _detect(self):
-        if not self._sdl_ready:
+        try:
+            self.dev = hid.device()
+            self.dev.open(self.VID, self.PID)
+            self.dev.set_nonblocking(True)
+            self.connected = True
+            print(f'Controller: {self.dev.get_product_string()}')
+        except Exception as e:
+            print(f'No controller: {e}')
+            self.dev = None
+            self._detect_sdl()
+
+    def _detect_sdl(self):
+        if sdl2 is None:
+            self.sdl_joy = None
             self.connected = False
             return
         try:
-            sdl2.SDL_JoystickUpdate()
+            sdl2.SDL_Init(sdl2.SDL_INIT_JOYSTICK)
             for index in range(sdl2.SDL_NumJoysticks()):
-                if not sdl2.SDL_IsGameController(index):
-                    continue
-                ctrl = sdl2.SDL_GameControllerOpen(index)
-                if not ctrl:
-                    continue
-                self._ctrl = ctrl
-                name = sdl2.SDL_GameControllerName(ctrl)
-                self.name = name.decode('utf-8', 'ignore') if name else 'Unknown Controller'
-                self.connected = True
-                _log(f'Controller: {self.name}')
-                return
+                if (sdl2.SDL_JoystickGetDeviceVendor(index) == self.LOGICOOL_VID
+                        and sdl2.SDL_JoystickGetDeviceProduct(index) == self.LOGICOOL_PID):
+                    self.sdl_joy = sdl2.SDL_JoystickOpen(index)
+                    if self.sdl_joy:
+                        self.connected = True
+                        print(f'Controller: {sdl2.SDL_JoystickName(self.sdl_joy).decode()}')
+                        return
         except Exception as e:
-            _log(f'No controller: {e}')
-
-        self._ctrl = None
+            print(f'No SDL controller: {e}')
+        self.sdl_joy = None
         self.connected = False
 
     def is_connected(self):
         return self.connected
 
-    @property
-    def name_display(self):
-        return self.name or 'Not connected'
-
     def _read_loop(self):
-        # 未接続の間だけ、バックグラウンドで再検出を試み続ける。
-        # (接続後の入力読み取りはメインスレッドの update() で行う)
         while True:
-            if not self._sdl_ready:
-                time.sleep(1)
-                continue
-            if self.connected:
-                time.sleep(0.2)
-                continue
-            self._detect()
             if not self.connected:
-                time.sleep(1)
+                self._detect()
+                if not self.connected:
+                    time.sleep(1)
+                    continue
 
-    # ------------------------------------------------------------------
-    # 毎フレーム更新
-    # ------------------------------------------------------------------
-    def update(self):
-        if not self.connected or self._ctrl is None:
-            return
+            if self.sdl_joy:
+                time.sleep(0.01)
+                continue
 
-        try:
-            sdl2.SDL_GameControllerUpdate()
-            if not sdl2.SDL_GameControllerGetAttached(self._ctrl):
-                raise RuntimeError('controller detached')
-            state = self._read_state()
-        except Exception as e:
-            _log(f'コントローラーが切断されました: {e}')
-            self._disconnect()
-            return
+            try:
+                data = self.dev.read(64)
+                if data and len(data) >= 18 and data[0] == 0x20:
+                    self._parse(data)
+                elif not data:
+                    time.sleep(0.001)
+            except Exception as e:
+                print(f'read error: {e}')
+                self.connected = False
+                with self._state_lock:
+                    self.state = None
+                try:
+                    self.dev.close()
+                except Exception:
+                    pass
 
+    def _parse(self, data):
+        raw = bytes(data)
+        b1 = data[4]
+        b2 = data[5]
+        state = {
+            'A': bool(b1 & 0x10),
+            'B': bool(b1 & 0x20),
+            'X': bool(b1 & 0x40),
+            'Y': bool(b1 & 0x80),
+            'LB': bool(b2 & 0x10),
+            'RB': bool(b2 & 0x20),
+            'dpad_up': bool(b2 & 0x01),
+            'dpad_down': bool(b2 & 0x02),
+            'dpad_left': bool(b2 & 0x04),
+            'dpad_right': bool(b2 & 0x08),
+            'LT': struct.unpack_from('<H', raw, 6)[0],
+            'RT': struct.unpack_from('<H', raw, 8)[0],
+            'LX': struct.unpack_from('<h', raw, 10)[0] / 32767.0,
+            'LY': struct.unpack_from('<h', raw, 12)[0] / 32767.0,
+            'RX': struct.unpack_from('<h', raw, 14)[0] / 32767.0,
+            'RY': struct.unpack_from('<h', raw, 16)[0] / 32767.0,
+        }
         with self._state_lock:
             self.state = state
+
+    def update(self):
+        if self.sdl_joy:
+            self._update_sdl()
+
+        with self._state_lock:
+            state = self.state.copy() if self.state else None
+        if not state:
+            return
 
         self._button_pressed_this_frame = {}
         for key in ('A', 'B', 'X', 'Y', 'LB', 'RB',
@@ -206,58 +144,50 @@ class Controller:
                 self._button_pressed_this_frame[key] = True
             self._prev_buttons[key] = now
 
-        THRESH = 0.5
-        now_lt = state.get('LT', 0.0) > THRESH
+        THRESH = 500
+        now_lt = state.get('LT', 0) > THRESH
         self._lt_edge = now_lt and not self._prev_lt
         self._prev_lt = now_lt
 
-        now_rt = state.get('RT', 0.0) > THRESH
+        now_rt = state.get('RT', 0) > THRESH
         self._rt_edge = now_rt and not self._prev_rt
         self._prev_rt = now_rt
 
-    def _disconnect(self):
-        try:
-            if self._ctrl:
-                sdl2.SDL_GameControllerClose(self._ctrl)
-        except Exception:
-            pass
-        self._ctrl = None
-        self.connected = False
-        with self._state_lock:
-            self.state = None
+    def _update_sdl(self):
+        sdl2.SDL_JoystickUpdate()
+        axis_count = sdl2.SDL_JoystickNumAxes(self.sdl_joy)
+        button_count = sdl2.SDL_JoystickNumButtons(self.sdl_joy)
+        hat = sdl2.SDL_JoystickGetHat(self.sdl_joy, 0) if sdl2.SDL_JoystickNumHats(self.sdl_joy) else 0
 
-    def _read_state(self):
-        c = self._ctrl
+        def axis(index):
+            if index >= axis_count:
+                return 0
+            return sdl2.SDL_JoystickGetAxis(self.sdl_joy, index) / 32767.0
 
-        def axis(a):
-            return sdl2.SDL_GameControllerGetAxis(c, a) / 32767.0
+        def button(index):
+            return bool(index < button_count and sdl2.SDL_JoystickGetButton(self.sdl_joy, index))
 
-        def button(b):
-            return bool(sdl2.SDL_GameControllerGetButton(c, b))
-
-        return {
-            'A': button(sdl2.SDL_CONTROLLER_BUTTON_A),
-            'B': button(sdl2.SDL_CONTROLLER_BUTTON_B),
-            'X': button(sdl2.SDL_CONTROLLER_BUTTON_X),
-            'Y': button(sdl2.SDL_CONTROLLER_BUTTON_Y),
-            'LB': button(sdl2.SDL_CONTROLLER_BUTTON_LEFTSHOULDER),
-            'RB': button(sdl2.SDL_CONTROLLER_BUTTON_RIGHTSHOULDER),
-            'dpad_up': button(sdl2.SDL_CONTROLLER_BUTTON_DPAD_UP),
-            'dpad_down': button(sdl2.SDL_CONTROLLER_BUTTON_DPAD_DOWN),
-            'dpad_left': button(sdl2.SDL_CONTROLLER_BUTTON_DPAD_LEFT),
-            'dpad_right': button(sdl2.SDL_CONTROLLER_BUTTON_DPAD_RIGHT),
-            # トリガーは0.0(離す)〜1.0(全押し)に正規化
-            'LT': max(0.0, axis(sdl2.SDL_CONTROLLER_AXIS_TRIGGERLEFT)),
-            'RT': max(0.0, axis(sdl2.SDL_CONTROLLER_AXIS_TRIGGERRIGHT)),
-            'LX': axis(sdl2.SDL_CONTROLLER_AXIS_LEFTX),
-            'LY': axis(sdl2.SDL_CONTROLLER_AXIS_LEFTY),
-            'RX': axis(sdl2.SDL_CONTROLLER_AXIS_RIGHTX),
-            'RY': axis(sdl2.SDL_CONTROLLER_AXIS_RIGHTY),
+        state = {
+            'A': button(0),
+            'B': button(1),
+            'X': button(2),
+            'Y': button(3),
+            'LB': button(4),
+            'RB': button(5),
+            'dpad_up': bool(hat & sdl2.SDL_HAT_UP),
+            'dpad_down': bool(hat & sdl2.SDL_HAT_DOWN),
+            'dpad_left': bool(hat & sdl2.SDL_HAT_LEFT),
+            'dpad_right': bool(hat & sdl2.SDL_HAT_RIGHT),
+            'LT': 0,
+            'RT': 0,
+            'LX': axis(0),
+            'LY': axis(1),
+            'RX': axis(2),
+            'RY': axis(3),
         }
+        with self._state_lock:
+            self.state = state
 
-    # ------------------------------------------------------------------
-    # 入力取得(以前と同じ公開API)
-    # ------------------------------------------------------------------
     def button_held(self, key):
         if not self.state:
             return False
@@ -280,7 +210,7 @@ class Controller:
     def move_y(self):
         if not self.state:
             return 0
-        return self._apply_deadzone(self.state['LY'], self.deadzone_left)
+        return -self._apply_deadzone(self.state['LY'], self.deadzone_left)
 
     def look_x(self):
         if not self.state:
@@ -290,7 +220,7 @@ class Controller:
     def look_y(self):
         if not self.state:
             return 0
-        return self._apply_deadzone(self.state['RY'], self.deadzone_right)
+        return -self._apply_deadzone(self.state['RY'], self.deadzone_right)
 
     def zl_just_pressed(self):
         return self._lt_edge
@@ -301,9 +231,9 @@ class Controller:
     def zl_held(self):
         if not self.state:
             return False
-        return self.state.get('LT', 0.0) > 0.5
+        return self.state.get('LT', 0) > 500
 
     def zr_held(self):
         if not self.state:
             return False
-        return self.state.get('RT', 0.0) > 0.5
+        return self.state.get('RT', 0) > 500
