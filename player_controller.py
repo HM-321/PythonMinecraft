@@ -146,8 +146,10 @@ class PlayerController:
         if input_dir.length() > 0:
             input_dir = input_dir.normalized()
 
-        sneak = held_keys['left shift'] or held_keys['right shift']
-        sprint = held_keys['left control'] or held_keys['right control']
+        sneak_key = settings.get('key_sneak')
+        sprint_key = settings.get('key_sprint')
+        sneak = bool(sneak_key and held_keys[sneak_key])
+        sprint = bool(sprint_key and held_keys[sprint_key])
 
         if hasattr(__main__, 'controller') and __main__.controller.is_connected():
             c = __main__.controller

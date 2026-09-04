@@ -631,15 +631,22 @@ def update():
             _limit_fps()
             return
 
-        if controller.zl_just_pressed():
+        if controller.zl_held():
             if game['click_cd'] <= 0:
                 game['click_cd'] = CLICK_INTERVAL
                 _try_place_block()
 
-        if controller.zr_just_pressed():
+        if controller.zr_held():
             if game['click_cd'] <= 0:
                 game['click_cd'] = CLICK_INTERVAL
                 _try_break_block()
+
+    if held_keys['left mouse'] and game['click_cd'] <= 0:
+        game['click_cd'] = CLICK_INTERVAL
+        _try_break_block()
+    elif held_keys['right mouse'] and game['click_cd'] <= 0:
+        game['click_cd'] = CLICK_INTERVAL
+        _try_place_block()
 
     # ===== 通常のtick処理 =====
     player.tick(time.dt)
