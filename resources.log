@@ -1,0 +1,5 @@
+RESOURCE_DIR=/Users/s13010282/Documents/pythonのやつ/Minecraft_BUILD
+DATA_DIR=/Users/s13010282/Documents/pythonのやつ/Minecraft_BUILD
+/Users/s13010282/Documents/pythonのやつ/Minecraft_BUILD/textures/dirt.png: True
+/Users/s13010282/Documents/pythonのやつ/Minecraft_BUILD/textures/grass_atlas.png: True
+/Users/s13010282/Documents/pythonのやつ/Minecraft_BUILD/textures/stone.png: True

@@ -6,8 +6,9 @@ from config import SAVE_DIR
 
 
 class WorldSelectMenu:
-    def __init__(self, on_select):
+    def __init__(self, on_select, on_back=None):
         self.on_select = on_select
+        self.on_back = on_back
         self.root = Entity(parent=camera.ui)
         self.use_template = True
 
@@ -54,6 +55,13 @@ class WorldSelectMenu:
             y=y, scale=(0.25, 0.05),
             color=color.azure,
             on_click=self._create,
+        )
+
+        Button(
+            parent=self.root, text='BACK',
+            y=y - 0.08, scale=(0.25, 0.05),
+            color=color.dark_gray,
+            on_click=self._back,
         )
 
     def _get_info(self, filename):
@@ -114,3 +122,8 @@ class WorldSelectMenu:
 
     def close(self):
         destroy(self.root)
+
+    def _back(self):
+        self.close()
+        if self.on_back:
+            self.on_back()

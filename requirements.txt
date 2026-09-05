@@ -1,0 +1,8 @@
+ursina
+panda3d
+pygame
+screeninfo
+psutil
+Pillow
+hidapi
+pyinstaller

@@ -3,7 +3,7 @@ import random
 import os
 
 SIZE = 16
-OUT_DIR = '/Users/s13010282/Documents/pythonのやつ/m/textures'
+OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'textures')
 
 os.makedirs(OUT_DIR, exist_ok=True)
 

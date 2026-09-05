@@ -10,6 +10,8 @@ DEFAULT_SETTINGS = {
     'bgm_volume': 0.3,
     'se_volume': 0.5,
     'max_fps': 30,
+    'last_server_host': '192.168.0.1',
+    'last_server_port': 25565,
     'key_jump': 'space',
     'key_sneak': 'left shift',
     'key_sprint': 'left control',
@@ -47,8 +49,11 @@ class Settings:
                         self.data[k] = v
             except Exception as e:
                 print(f'settings load error: {e}')
+        else:
+            self.save()
 
     def save(self):
+        os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
         with open(SETTINGS_PATH, 'w') as f:
             json.dump(self.data, f, indent=2)
         print(f'settings saved: {SETTINGS_PATH}')
