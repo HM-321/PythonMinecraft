@@ -132,6 +132,7 @@ game = {
     'network_player_id': None,
     'remote_players': {},
     'network_state_cd': 0,
+    'window_focused': True,
 }
 
 
@@ -168,27 +169,6 @@ def start_game(save_path, is_new, use_template=False):
     else:
         game['world'].load(game['player'].entity)
 
-    def force_redraw():
-        p = app.win.getProperties()
-        
-        print(
-            "actual:",
-            p.getXSize(),
-            p.getYSize()
-        )
-
-        w, h = p.getXSize(), p.getYSize()
-        np = WindowProperties()
-        np.setSize(w + 1, h + 1)
-        app.win.requestProperties(np)
-        invoke(_restore, w=w, h=h, delay=0.03)
-
-    def _restore(w, h):
-        np = WindowProperties()
-        np.setSize(w, h)
-        app.win.requestProperties(np)
-
-    invoke(force_redraw, delay=0.5)
     game['started'] = True
 
 
@@ -570,6 +550,16 @@ def _center():
     return w // 2, h // 2
 
 
+def _update_window_focus():
+    focused = app.win.getProperties().getForeground()
+    if focused == game['window_focused']:
+        return
+
+    game['window_focused'] = focused
+    if not focused and game['started'] and not game['paused']:
+        _open_pause_menu()
+
+
 
 def update():
     block_particles.update()
@@ -579,6 +569,7 @@ def update():
         _limit_fps()
         return
 
+    _update_window_focus()
     controller.update()
     game['esc_cd'] = max(0, game['esc_cd'] - time.dt)
 
