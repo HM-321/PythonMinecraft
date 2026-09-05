@@ -157,6 +157,7 @@ class PlayerController:
                 sneak = True
             if c.button_held(settings.get('ctrl_dash')):
                 sprint = True
+                
 
         # 現在のスニーク状態をマルチプレイへ送れるよう保持する。
         self.sneaking = bool(sneak)
