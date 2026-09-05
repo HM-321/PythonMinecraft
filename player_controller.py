@@ -3,7 +3,7 @@ from settings import settings
 from config import (PLAYER_HEIGHT, PLAYER_RADIUS,
                     MOVE_SPEED, SNEAK_MUL, SPRINT_MUL, FRICTION,
                     GRAVITY, JUMP_POWER, SENSITIVITY, DOUBLE_TAP,
-                    VOID_Y, WORLD_SIZE)
+                    WORLD_SIZE)
 
 
 class PlayerController:
@@ -248,7 +248,7 @@ class PlayerController:
                         for ox, oz in corners):
                     p.y -= dy
 
-        if p.y < VOID_Y:
+        if p.y < -30:
             p.position = self._find_safe_respawn()
             self.velocity_y = 0
             self.velocity_h = Vec3(0, 0, 0)

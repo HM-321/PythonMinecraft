@@ -10,8 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from config import (PLAYER_HEIGHT, PLAYER_RADIUS, SAVE_VERSION, SAND_FALL_SPEED,
-                    SAND_START_DELAY, WORLD_SIZE)
+from config import (PLAYER_HEIGHT, PLAYER_RADIUS, SAVE_VERSION, WORLD_SIZE)
 from network_protocol import MessageBuffer, ProtocolError, encode_message
 
 
@@ -40,10 +39,7 @@ class ServerWorld:
     def __init__(self, path):
         self.path = Path(path)
         self.blocks = {}
-        self._sand_pending = {}
-        self._falling_sand = {}
         self._load_or_create()
-        self._queue_unstable_sand()
 
     def _load_or_create(self):
         if self.path.exists():
@@ -81,82 +77,6 @@ class ServerWorld:
         with temporary_path.open('w', encoding='utf-8') as world_file:
             json.dump(data, world_file, ensure_ascii=False)
         temporary_path.replace(self.path)
-
-    def _has_support(self, position):
-        x, y, z = position
-        below = (x, y - 1, z)
-        return below in self.blocks and below not in self._falling_sand
-
-    def _queue_sand(self, position, delay=SAND_START_DELAY):
-        block = self.blocks.get(position)
-        if block and block[0] == 5 and not self._has_support(position):
-            current = self._sand_pending.get(position)
-            if current is None or delay < current:
-                self._sand_pending[position] = delay
-
-    def _queue_unstable_sand(self):
-        for position, block in self.blocks.items():
-            if block[0] == 5:
-                self._queue_sand(position, delay=0)
-
-    def _queue_sand_above(self, position):
-        x, y, z = position
-        for above_y in range(y + 1, WORLD_SIZE * 4):
-            above = (x, above_y, z)
-            block = self.blocks.get(above)
-            if block is None:
-                continue
-            if block[0] == 5:
-                self._queue_sand(above)
-            return
-
-    def place(self, position, block_id, orientation):
-        self.blocks[position] = [block_id, orientation]
-        if block_id == 5:
-            self._queue_sand(position)
-
-    def remove(self, position):
-        self._sand_pending.pop(position, None)
-        self._falling_sand.pop(position, None)
-        self.blocks.pop(position, None)
-        self._queue_sand_above(position)
-
-    def update_sand(self, dt, on_move):
-        for position, delay in tuple(self._sand_pending.items()):
-            if position not in self.blocks or self.blocks[position][0] != 5:
-                del self._sand_pending[position]
-                continue
-            delay -= dt
-            if delay <= 0:
-                del self._sand_pending[position]
-                if not self._has_support(position):
-                    self._falling_sand[position] = 0.0
-            else:
-                self._sand_pending[position] = delay
-
-        for position, distance in tuple(self._falling_sand.items()):
-            if position not in self.blocks:
-                del self._falling_sand[position]
-                continue
-            distance += SAND_FALL_SPEED * dt
-            while distance >= 1.0:
-                x, y, z = position
-                below = (x, y - 1, z)
-                if self._has_support(position):
-                    del self._falling_sand[position]
-                    break
-                old_position = position
-                block = self.blocks.pop(old_position)
-                new_position = below
-                self.blocks[new_position] = block
-                del self._falling_sand[old_position]
-                position = new_position
-                on_move(old_position, new_position, block)
-                distance -= 1.0
-                if self._has_support(position):
-                    break
-            else:
-                self._falling_sand[position] = distance
 
 
 class ClientSession:
@@ -215,7 +135,6 @@ class MinecraftBuildServer:
         display_host = get_local_ip() if self.host in ('', '0.0.0.0') else self.host
         print(f'MinecraftBuild server listening on {display_host}:{self.port}')
         last_save = time.monotonic()
-        last_sand_update = last_save
         try:
             while not self.stop_event.is_set():
                 try:
@@ -238,14 +157,9 @@ class MinecraftBuildServer:
                                          args=(session,), daemon=True).start()
                         print(f'player {player_id} connected from '
                               f'{address[0]}:{address[1]}')
-                    now = time.monotonic()
-                    self.world.update_sand(
-                        min(now - last_sand_update, 0.2),
-                        self._broadcast_sand_move)
-                    last_sand_update = now
-                    if now - last_save >= SAVE_INTERVAL:
-                        self.world.save()
-                        last_save = now
+                if time.monotonic() - last_save >= SAVE_INTERVAL:
+                    self.world.save()
+                    last_save = time.monotonic()
         finally:
             self.shutdown()
 
@@ -745,28 +659,18 @@ class MinecraftBuildServer:
             orientation = message.get('orientation', 'y')
             if orientation not in ('x', 'y', 'z'):
                 orientation = 'y'
-            self.world.place(position, block_id, orientation)
+            self.world.blocks[position] = [block_id, orientation]
             event = {'type': 'block_changed', 'action': 'place',
                      'x': position[0], 'y': position[1], 'z': position[2],
                      'block_id': block_id, 'orientation': orientation}
         else:
             if position not in self.world.blocks:
                 return
-            self.world.remove(position)
+            del self.world.blocks[position]
             print(f'player {session.player_id} broke block: {position}')
             event = {'type': 'block_changed', 'action': 'break',
                      'x': position[0], 'y': position[1], 'z': position[2]}
         self._broadcast(event)
-
-    def _broadcast_sand_move(self, old_position, new_position, block):
-        self._broadcast({
-            'type': 'block_changed',
-            'action': 'move',
-            'from_x': old_position[0], 'from_y': old_position[1],
-            'from_z': old_position[2],
-            'x': new_position[0], 'y': new_position[1], 'z': new_position[2],
-            'block_id': block[0], 'orientation': block[1],
-        })
 
     def _update_position_from_request(self, session, message):
         for key in ('x', 'y', 'z'):

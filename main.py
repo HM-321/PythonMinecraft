@@ -294,13 +294,6 @@ def _apply_network_block_change(message):
             block_particles.burst(existing)
             world.remove_block(existing)
             sound_mgr.play_break()
-    elif message.get('action') == 'move':
-        old_position = (message.get('from_x'), message.get('from_y'),
-                        message.get('from_z'))
-        if None not in old_position:
-            world.move_block(old_position, position,
-                             message.get('block_id', 5),
-                             message.get('orientation', 'y'))
     elif message.get('action') == 'place' and not existing:
         world.place_block(*position, message.get('block_id', 0),
                           orientation=message.get('orientation', 'y'))
@@ -311,7 +304,9 @@ def _reset_network_world(blocks):
     world = game.get('world')
     if not world:
         return
-    world.clear()
+    for block in world.boxes:
+        destroy(block)
+    world.boxes.clear()
     for block in blocks:
         if len(block) >= 4:
             world.place_block(*block[:3], block[3],
@@ -581,8 +576,6 @@ def update():
     if game['paused']:
         _limit_fps()
         return
-
-    game['world'].update_sand(time.dt)
 
     cx, cy = _center()
     if game['first_frame']:
