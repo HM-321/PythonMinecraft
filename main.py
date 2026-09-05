@@ -304,9 +304,7 @@ def _reset_network_world(blocks):
     world = game.get('world')
     if not world:
         return
-    for block in world.boxes:
-        destroy(block)
-    world.boxes.clear()
+    world.clear()
     for block in blocks:
         if len(block) >= 4:
             world.place_block(*block[:3], block[3],
@@ -576,6 +574,8 @@ def update():
     if game['paused']:
         _limit_fps()
         return
+
+    game['world'].update_sand(time.dt)
 
     cx, cy = _center()
     if game['first_frame']:

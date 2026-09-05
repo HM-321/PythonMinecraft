@@ -3,7 +3,8 @@ import os
 from datetime import datetime
 from ursina import Button, destroy, scene,BoxCollider,Entity
 from block_types import BLOCK_TYPES
-from config import SAVE_VERSION, WORLD_SIZE
+from config import (SAVE_VERSION, SAND_FALL_SPEED, SAND_START_DELAY,
+                    VOID_Y, WORLD_SIZE)
 from custom_mesh import make_face_atlas_cube
 
 
@@ -11,6 +12,10 @@ class World:
     def __init__(self, save_path):
         self.save_path = save_path
         self.boxes = []
+        self._blocks_by_position = {}
+        self._falling_sand = set()
+        self._sand_pending = {}
+        self._sand_accumulator = 0.0
 
     def place_block(self, x, y, z, block_id, orientation='y'):
         name, col, tex_info = BLOCK_TYPES[block_id]
@@ -51,6 +56,11 @@ class World:
 
         b.block_position = (int(x), int(y), int(z))
         self.boxes.append(b)
+        self._blocks_by_position[b.block_position] = b
+        if name == 'Sand':
+            below = self._blocks_by_position.get((int(x), int(y) - 1, int(z)))
+            if below is None:
+                self._start_sand_fall(b)
         return b
         name, col, tex_info = BLOCK_TYPES[block_id]
 
@@ -93,8 +103,125 @@ class World:
 
     def remove_block(self, block):
         if block in self.boxes:
+            position = getattr(block, 'block_position', None)
             self.boxes.remove(block)
+            self._falling_sand.discard(block)
+            self._sand_pending.pop(block, None)
+            if position and self._blocks_by_position.get(position) is block:
+                del self._blocks_by_position[position]
             destroy(block)
+            if position:
+                self._start_sand_above_position(position)
+
+    def _has_solid_support(self, block):
+        x, y, z = block.block_position
+        below = self._blocks_by_position.get((x, y - 1, z))
+        return below is not None and below not in self._falling_sand
+
+    def _start_sand_fall(self, block, delay=SAND_START_DELAY):
+        if block.block_type != 5 or block in self._falling_sand:
+            return
+        if delay > 0:
+            current_delay = self._sand_pending.get(block)
+            if current_delay is None or delay < current_delay:
+                self._sand_pending[block] = delay
+            return
+        block.collider = None
+        block._sand_y = block.block_position[1]
+        self._falling_sand.add(block)
+        self._queue_sand_above(block)
+
+    def _queue_sand_above(self, block, delay=0.08):
+        x, y, z = block.block_position
+        self._queue_sand_above_position((x, y, z), delay)
+
+    def _start_sand_above_position(self, position):
+        x, y, z = position
+        y += 1
+        while y < WORLD_SIZE * 4:
+            above = self._blocks_by_position.get((x, y, z))
+            if above is None:
+                y += 1
+                continue
+            if above.block_type == 5:
+                self._start_sand_fall(above)
+            return
+
+    def _queue_sand_above_position(self, position, delay=0.08):
+        x, y, z = position
+        y += 1
+        while y < WORLD_SIZE * 4:
+            above = self._blocks_by_position.get((x, y, z))
+            if above is None:
+                y += 1
+                continue
+            if above.block_type == 5:
+                current_delay = self._sand_pending.get(above)
+                if current_delay is None or delay < current_delay:
+                    self._sand_pending[above] = delay
+            return
+
+    def update_sand(self, dt):
+        if not self._falling_sand and not self._sand_pending:
+            return
+
+        self._sand_accumulator += dt
+        if self._sand_accumulator < 0.05:
+            return
+        step_dt = min(self._sand_accumulator, 0.2)
+        self._sand_accumulator = 0.0
+        fall_distance = SAND_FALL_SPEED * step_dt
+
+        for block, delay in tuple(self._sand_pending.items()):
+            delay -= step_dt
+            if block not in self.boxes:
+                del self._sand_pending[block]
+            elif delay <= 0:
+                del self._sand_pending[block]
+                self._start_sand_fall(block, delay=0)
+            else:
+                self._sand_pending[block] = delay
+
+        for block in tuple(self._falling_sand):
+            if block.y < VOID_Y:
+                self.remove_block(block)
+                continue
+
+            x, _, z = block.block_position
+            current_y = block._sand_y
+            below = self._blocks_by_position.get((x, current_y - 1, z))
+            if below is not None and below not in self._falling_sand:
+                block.y = current_y
+                block.collider = 'box'
+                self._falling_sand.remove(block)
+                continue
+
+            block.y -= fall_distance
+            while block.y <= current_y - 1:
+                old_position = block.block_position
+                current_y -= 1
+                new_position = (x, current_y, z)
+                if self._blocks_by_position.get(old_position) is block:
+                    del self._blocks_by_position[old_position]
+                self._blocks_by_position[new_position] = block
+                block.block_position = new_position
+                block._sand_y = current_y
+
+                below = self._blocks_by_position.get((x, current_y - 1, z))
+                if below is not None and below not in self._falling_sand:
+                    block.y = current_y
+                    block.collider = 'box'
+                    self._falling_sand.remove(block)
+                    break
+
+    def clear(self):
+        for block in self.boxes:
+            destroy(block)
+        self.boxes.clear()
+        self._blocks_by_position.clear()
+        self._falling_sand.clear()
+        self._sand_pending.clear()
+        self._sand_accumulator = 0.0
 
     def generate_flat(self):
         for i in range(WORLD_SIZE):
