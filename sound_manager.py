@@ -1,5 +1,6 @@
 import os
-os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
+if os.environ.get('MINECRAFTBUILD_AUDIO') == '0':
+    os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
 import pygame
 from config import SOUND_DIR
 
@@ -8,7 +9,7 @@ from settings import settings
 
 class SoundManager:
     def __init__(self):
-        self.enabled = os.environ.get('MINECRAFTBUILD_AUDIO') == '1'
+        self.enabled = os.environ.get('MINECRAFTBUILD_AUDIO', '1') == '1'
         self.place = None
         self.break_ = None
         self.bgm_path = os.path.join(SOUND_DIR, 'bgm.mp3')
