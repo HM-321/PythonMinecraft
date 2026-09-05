@@ -113,6 +113,24 @@ class World:
             if position:
                 self._start_sand_above_position(position)
 
+    def move_block(self, old_position, new_position, block_id=5,
+                   orientation='y'):
+        block = self._blocks_by_position.get(old_position)
+        if block is None:
+            block = self._blocks_by_position.get(new_position)
+        if block is None:
+            return self.place_block(*new_position, block_id, orientation)
+        if old_position != new_position:
+            self._blocks_by_position.pop(getattr(block, 'block_position',
+                                                 old_position), None)
+        block.block_position = tuple(int(value) for value in new_position)
+        self._blocks_by_position[block.block_position] = block
+        block.position = new_position
+        block.collider = 'box'
+        self._falling_sand.discard(block)
+        self._sand_pending.pop(block, None)
+        return block
+
     def _has_solid_support(self, block):
         x, y, z = block.block_position
         below = self._blocks_by_position.get((x, y - 1, z))
