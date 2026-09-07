@@ -283,12 +283,7 @@ def _apply_network_block_change(message):
         return
     if message.get('action') == 'break' and game.get('network_client'):
         game['network_client'].acknowledge_break(*position)
-    def block_position(block):
-        return getattr(block, 'block_position',
-                       (round(block.x), round(block.y), round(block.z)))
-
-    existing = next((block for block in world.boxes
-                     if block_position(block) == position), None)
+    existing = world.get_block(*position)
     if message.get('action') == 'break':
         if existing:
             block_particles.burst(existing)
@@ -304,9 +299,7 @@ def _reset_network_world(blocks):
     world = game.get('world')
     if not world:
         return
-    for block in world.boxes:
-        destroy(block)
-    world.boxes.clear()
+    world.clear()
     for block in blocks:
         if len(block) >= 4:
             world.place_block(*block[:3], block[3],

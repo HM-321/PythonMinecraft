@@ -104,4 +104,5 @@ def _make_atlas_cube(top_dir='y'):
 
 
 def make_face_atlas_cube(orientation='y'):
-    return _make_atlas_cube(orientation)
+    normalized = orientation if orientation in ('x', 'y', 'z') else 'y'
+    return _make_atlas_cube(normalized)
