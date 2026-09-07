@@ -1,5 +1,5 @@
-RESOURCE_DIR=C:\Users\�O�䊰�l\Documents\python\PythonMinecraft
-DATA_DIR=C:\Users\�O�䊰�l\Documents\python\PythonMinecraft
-C:\Users\�O�䊰�l\Documents\python\PythonMinecraft\textures\dirt.png: True
-C:\Users\�O�䊰�l\Documents\python\PythonMinecraft\textures\grass_atlas.png: True
-C:\Users\�O�䊰�l\Documents\python\PythonMinecraft\textures\stone.png: True
+RESOURCE_DIR=/Users/s13010282/Documents/pythonのやつ/PythonMinecraft
+DATA_DIR=/Users/s13010282/Documents/pythonのやつ/PythonMinecraft
+/Users/s13010282/Documents/pythonのやつ/PythonMinecraft/textures/dirt.png: True
+/Users/s13010282/Documents/pythonのやつ/PythonMinecraft/textures/grass_atlas.png: True
+/Users/s13010282/Documents/pythonのやつ/PythonMinecraft/textures/stone.png: True
