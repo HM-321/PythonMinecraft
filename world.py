@@ -12,6 +12,7 @@ from custom_mesh import make_face_atlas_cube
 
 
 LOD_CHUNK_SIZE = 10
+SAND_BLOCK_ID = 5
 
 
 class World:
@@ -19,6 +20,7 @@ class World:
         self.save_path = save_path
         self.boxes = []
         self.blocks_by_position = {}
+        self.sand_positions = set()
         # チャンクごとのブロック座標索引
         self.blocks_by_chunk = defaultdict(set)
 
@@ -85,6 +87,8 @@ class World:
         chunk_key = self._chunk_key(position[0], position[2])
         self.boxes.append(block)
         self.blocks_by_position[position] = block
+        if block_id == SAND_BLOCK_ID:
+            self.sand_positions.add(position)
         self.blocks_by_chunk[chunk_key].add(position)
         self.dirty_lod_chunks.add(chunk_key)
         return block
@@ -97,6 +101,7 @@ class World:
             position = self._position_key(*position)
 
         registered = self.blocks_by_position.pop(position, None)
+        self.sand_positions.discard(position)
         target = registered or block
 
         try:
@@ -119,6 +124,7 @@ class World:
             destroy(block)
         self.boxes.clear()
         self.blocks_by_position.clear()
+        self.sand_positions.clear()
         self.blocks_by_chunk.clear()
         self.clear_lod()
 
@@ -164,18 +170,17 @@ class World:
             uv_range = (1 / 3, 2 / 3)
         return texture_path, uv_range, block_color
 
-    def rebuild_dirty_lod(self):
-        if not self.dirty_lod_chunks:
-            return
-
-        dirty = tuple(self.dirty_lod_chunks)
-        self.dirty_lod_chunks.clear()
-        for chunk_key in dirty:
-            self._rebuild_lod_chunk(chunk_key)
+    def rebuild_dirty_lod(self, max_chunks=1):
+        # LOD再生成を複数フレームへ分散して、一括停止を避ける。
+        for _ in range(max_chunks):
+            if not self.dirty_lod_chunks:
+                return
+            self._rebuild_lod_chunk(self.dirty_lod_chunks.pop())
 
     def _rebuild_lod_chunk(self, chunk_key):
         old_entities = self.lod_entities.pop(chunk_key, [])
         for entity in old_entities:
+            entity.enabled = False
             destroy(entity)
 
         chunk_x, chunk_z = chunk_key
@@ -257,7 +262,10 @@ class World:
                 color=color.rgba(*color_key),
                 collider=None,
                 double_sided=True,
-                enabled=self.lod_enabled,
+                enabled=(
+                    hasattr(self, "visible_lod_chunks")
+                    and chunk_key in self.visible_lod_chunks
+                ),
             )
             if lod.texture:
                 lod.texture.filtering = None
@@ -296,23 +304,24 @@ class World:
             if distance2 <= near_distance2:
                 near_chunks.add(chunk_key)
 
-                # 高所では近距離チャンクにもLODを表示する。
-                # プレイヤー付近の高い足場は通常Entity、
-                # 高度差のある地面はLODが担当する。
-                if abs(player_y) >= vertical_distance - 2:
-                    lod_chunks.add(chunk_key)
-
             elif distance2 <= lod_distance2:
-                lod_chunks.add(chunk_key)
+                if chunk_key in self.lod_entities:
+                    lod_chunks.add(chunk_key)
+                else:
+                    # LOD生成待ち中は通常表示を残し、四角い欠けを防ぐ。
+                    near_chunks.add(chunk_key)
+
+        high_altitude = abs(player_y) >= vertical_distance - 2
+        entity_vertical_distance = 6 if high_altitude else vertical_distance
 
         for block in self.boxes:
             x, y, z = block.block_position
 
-            # プレイヤーと同じ高度付近だけ通常Entityとして表示する。
-            # Colliderもこの範囲だけ有効になる。
+            # 高所ではプレイヤー周辺の足場だけ通常Entityとして残す。
+            # 遠い地面はLODだけに任せ、同じ面の二重描画を防ぐ。
             block.enabled = (
                 self._chunk_key(x, z) in near_chunks
-                and abs(y - player_y) < vertical_distance
+                and abs(y - player_y) < entity_vertical_distance
             )
 
         for chunk_key, entities in self.lod_entities.items():

@@ -129,6 +129,7 @@ game = {
     'scroll_cd': 0,
     'esc_cd': 0,
     'cull_timer': 0.0,
+    'selection_timer': 0.0,
     'last_cull_position': None,
     'network_client': None,
     'network_pending': None,
@@ -680,12 +681,23 @@ def update():
                 return
 
     # ===== 選択枠 =====
-    hit = raycast(camera.world_position, camera.forward,
-                  distance=REACH, ignore=[player.entity])
-    if hit.hit and hit.entity in game['world'].boxes:
-        game['selection'].show_at(hit.entity)
-    else:
-        game['selection'].hide()
+    # 選択枠は30Hzで十分。毎フレームのraycastを削減する。
+    game['selection_timer'] -= time.dt
+    if game['selection_timer'] <= 0:
+        game['selection_timer'] = 1 / 30
+        hit = raycast(
+            camera.world_position,
+            camera.forward,
+            distance=REACH,
+            ignore=[player.entity],
+        )
+        if hit.hit and hit.entity in game['world'].boxes:
+            game['selection'].show_at(hit.entity)
+        else:
+            game['selection'].hide()
+
+    # LOD更新を1フレーム1チャンクへ分散する。
+    game['world'].rebuild_dirty_lod(max_chunks=1)
 
     # ===== 距離カリング =====
     # 全ブロック走査を5フレームごとではなく最大4回/秒に抑える。

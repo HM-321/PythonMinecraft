@@ -94,10 +94,11 @@ class SandPhysics:
 
     def _start_unstable_sand(self):
         candidates = []
-        for block in tuple(self.world.boxes):
-            if getattr(block, 'block_type', None) != SAND_ID:
+        for position in tuple(self.world.sand_positions):
+            block = self.world.blocks_by_position.get(position)
+            if block is None:
                 continue
-            x, y, z = block.block_position
+            x, y, z = position
             if y <= MIN_Y or self.world.get_block(x, y - 1, z) is not None:
                 continue
             column = (x, z)
