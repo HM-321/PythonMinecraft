@@ -1,28 +1,44 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import platform
+from PyInstaller.utils.hooks import collect_all
+
+
+ursina_datas, ursina_binaries, ursina_hiddenimports = collect_all("ursina")
+panda3d_datas, panda3d_binaries, panda3d_hiddenimports = collect_all("panda3d")
+direct_datas, direct_binaries, direct_hiddenimports = collect_all("direct")
 
 
 a = Analysis(
-    ["server.py"],
+    ["main.py"],
     pathex=[],
-    binaries=[],
+    binaries=(
+        ursina_binaries
+        + panda3d_binaries
+        + direct_binaries
+    ),
     datas=[
         ("Template.json", "."),
-    ],
-    hiddenimports=[
-        "tkinter",
-        "tkinter.messagebox",
-    ],
+        ("textures", "textures"),
+        ("sounds", "sounds"),
+        ("fonts", "fonts"),
+    ]
+    + ursina_datas
+    + panda3d_datas
+    + direct_datas,
+    hiddenimports=(
+        ursina_hiddenimports
+        + panda3d_hiddenimports
+        + direct_hiddenimports
+    ),
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[
+        "pyi_runtime_hook.py",
+    ],
     excludes=[
-        "ursina",
-        "panda3d",
-        "pygame",
-        "screeninfo",
-        "hid",
+        "panda3d.rocket",
+        "sdl2",
+        "sdl2.ext",
     ],
     noarchive=False,
     optimize=0,
@@ -35,15 +51,15 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="MinecraftBuildServer",
+    name="MinecraftBuild",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch="arm64",
     codesign_identity=None,
     entitlements_file=None,
 )
@@ -55,13 +71,12 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="MinecraftBuildServer",
+    name="MinecraftBuild",
 )
 
-if platform.system() == "Darwin":
-    app = BUNDLE(
-        coll,
-        name="MinecraftBuildServer.app",
-        icon=None,
-        bundle_identifier=None,
-    )
+app = BUNDLE(
+    coll,
+    name="MinecraftBuild.app",
+    icon=None,
+    bundle_identifier=None,
+)

@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parent
+DIST_DIR = ROOT_DIR / "dist"
 
 SPEC_FILES = {
     "Darwin": {
@@ -20,9 +21,14 @@ SPEC_FILES = {
     },
 }
 
+OUTPUT_NAMES = {
+    "client": "MinecraftBuild",
+    "debug": "MinecraftBuildDebug",
+    "server": "MinecraftBuildServer",
+}
+
 
 def get_spec_path(system: str, mode: str) -> Path:
-    """OSとビルド種別に対応するspecファイルを取得する。"""
     os_specs = SPEC_FILES.get(system)
 
     if os_specs is None:
@@ -46,7 +52,6 @@ def get_spec_path(system: str, mode: str) -> Path:
 
 
 def remove_directory(directory_name: str) -> None:
-    """指定された出力ディレクトリを削除する。"""
     directory = ROOT_DIR / directory_name
 
     if directory.exists():
@@ -55,13 +60,36 @@ def remove_directory(directory_name: str) -> None:
 
 
 def clean_all_outputs() -> None:
-    """buildとdistを完全に削除する。"""
     remove_directory("build")
     remove_directory("dist")
 
 
-def run_build(spec_path: Path, mode: str) -> None:
-    """PyInstallerで1種類のビルドを実行する。"""
+def organize_macos_app(mode: str) -> None:
+    output_name = OUTPUT_NAMES[mode]
+
+    app_path = DIST_DIR / f"{output_name}.app"
+    output_directory = DIST_DIR / output_name
+    destination = output_directory / f"{output_name}.app"
+
+    if not app_path.exists():
+        print(f"警告: appが見つからない: {app_path}")
+        return
+
+    output_directory.mkdir(parents=True, exist_ok=True)
+
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    shutil.move(str(app_path), str(destination))
+
+    print(f"appを移動: {destination}")
+
+
+def run_build(
+    spec_path: Path,
+    mode: str,
+    system: str,
+) -> None:
     command = [
         sys.executable,
         "-m",
@@ -82,6 +110,9 @@ def run_build(spec_path: Path, mode: str) -> None:
         cwd=ROOT_DIR,
         check=True,
     )
+
+    if system == "Darwin":
+        organize_macos_app(mode)
 
     print(f"完了: {mode}")
 
@@ -135,13 +166,13 @@ def main() -> None:
             clean_all_outputs()
 
         for mode, spec_path in spec_paths:
-            run_build(spec_path, mode)
+            run_build(
+                spec_path=spec_path,
+                mode=mode,
+                system=system,
+            )
 
-    except FileNotFoundError as error:
-        print(f"エラー: {error}", file=sys.stderr)
-        sys.exit(1)
-
-    except RuntimeError as error:
+    except (FileNotFoundError, RuntimeError) as error:
         print(f"エラー: {error}", file=sys.stderr)
         sys.exit(1)
 
@@ -155,7 +186,7 @@ def main() -> None:
     print()
     print("=" * 60)
     print("すべてのビルドが完了した")
-    print(f"出力先: {ROOT_DIR / 'dist'}")
+    print(f"出力先: {DIST_DIR}")
     print("=" * 60)
 
 
