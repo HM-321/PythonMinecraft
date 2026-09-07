@@ -162,6 +162,10 @@ class MinecraftBuildServer:
                     else:
                         player_id = self._allocate_player_id()
                         session = ClientSession(connection, address, player_id)
+                        spawn = self._find_safe_spawn(player_id)
+                        session.state['x'] = spawn[0]
+                        session.state['y'] = spawn[1]
+                        session.state['z'] = spawn[2]
                         with self.sessions_lock:
                             self.sessions[player_id] = session
                         threading.Thread(target=self._client_loop,
@@ -173,6 +177,48 @@ class MinecraftBuildServer:
                     last_save = time.monotonic()
         finally:
             self.shutdown()
+
+    def _find_safe_spawn(self, player_id=1):
+        """ワールド中央から外側へ探索して、安全な地表を返す。"""
+        center_x = int(WORLD_SIZE // 2) + (player_id - 1) * 2
+        center_z = int(WORLD_SIZE // 2)
+        max_radius = max(WORLD_SIZE, 32)
+
+        columns = {}
+        for (x, y, z), (block_id, _orientation) in self.world.blocks.items():
+            columns.setdefault((x, z), []).append((y, block_id))
+
+        for radius in range(max_radius + 1):
+            for dx in range(-radius, radius + 1):
+                for dz in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dz)) != radius:
+                        continue
+
+                    x = center_x + dx
+                    z = center_z + dz
+                    column = columns.get((x, z))
+                    if not column:
+                        continue
+
+                    # 上から順に、砂以外の安定した床を探す。
+                    for floor_y, block_id in sorted(column, reverse=True):
+                        if block_id == SAND_BLOCK_ID:
+                            continue
+
+                        feet_block = (x, floor_y + 1, z)
+                        head_block = (x, floor_y + 2, z)
+                        if (
+                            feet_block not in self.world.blocks
+                            and head_block not in self.world.blocks
+                        ):
+                            return (
+                                x + 0.001,
+                                floor_y + 0.01,
+                                z + 0.001,
+                            )
+
+        # 安全地点がない場合だけ、従来に近い中央上空へ退避する。
+        return (WORLD_SIZE / 2, 3.0, WORLD_SIZE / 2)
 
     def _run_control_panel(self):
         try:
