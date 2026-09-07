@@ -104,8 +104,8 @@ class OptionsScreen:
             parent=self.root,
             min=min_v, max=max_v,
             default=val,
-            position=(x_offset - 0.02, y),
-            scale=0.12,
+            position=(x_offset - 0.04, y),
+            scale=0.19,
             step=(max_v - min_v) / 40,
         )
         sl.on_value_changed = lambda k=key, s=sl: self._on_change(k, s)
@@ -113,8 +113,8 @@ class OptionsScreen:
 
         val_str = f'{int(val)}' if key == 'max_fps' else f'{val:.2f}'
         val_text = Text(parent=self.root, text=val_str,
-                        position=(x_offset + 0.13, y), origin=(-0.5, 0),
-                        scale=0.7, color=color.light_gray)
+                        position=(x_offset + 0.16, y), origin=(-0.5, 0),
+                        scale=0.65, color=color.light_gray)
         sl._val_text = val_text
 
     def _make_key_bind(self, label, key, y, x_offset=0):
