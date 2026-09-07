@@ -295,11 +295,21 @@ class World:
 
             if distance2 <= near_distance2:
                 near_chunks.add(chunk_key)
+
+                # 高所では近距離チャンクにもLODを表示する。
+                # プレイヤー付近の高い足場は通常Entity、
+                # 高度差のある地面はLODが担当する。
+                if abs(player_y) >= vertical_distance - 2:
+                    lod_chunks.add(chunk_key)
+
             elif distance2 <= lod_distance2:
                 lod_chunks.add(chunk_key)
 
         for block in self.boxes:
             x, y, z = block.block_position
+
+            # プレイヤーと同じ高度付近だけ通常Entityとして表示する。
+            # Colliderもこの範囲だけ有効になる。
             block.enabled = (
                 self._chunk_key(x, z) in near_chunks
                 and abs(y - player_y) < vertical_distance
