@@ -63,7 +63,9 @@ class PlayerController:
             perp = [Vec3(-PLAYER_RADIUS + 0.01, 0, 0), Vec3(0, 0, 0),
                     Vec3(PLAYER_RADIUS - 0.01, 0, 0)]
 
-        heights = [0.1, PLAYER_HEIGHT / 2, PLAYER_HEIGHT - 0.1]
+        # 立方体ブロックとの横衝突は足元と頭側の2段で十分。
+        # 3段 x 横3点から、2段 x 横3点へ削減する。
+        heights = [0.1, PLAYER_HEIGHT - 0.1]
         dist = PLAYER_RADIUS + abs(delta)
 
         for h in heights:
@@ -198,12 +200,19 @@ class PlayerController:
 
         if self.gravity_on:
             r = PLAYER_RADIUS - 0.02
-            pts = [(0, 0), (r, 0), (-r, 0), (0, r), (0, -r),
-                (r, r), (-r, r), (r, -r), (-r, -r)]
+            # 中心と四隅だけを調べる。毎フレーム9本、距離100だった判定を
+            # 5本の短いrayへ変更し、足元のブロックだけを対象にする。
+            pts = [(0, 0), (r, r), (-r, r), (r, -r), (-r, -r)]
             ground_y = -9999
+            fall_distance = max(0.0, -self.velocity_y * time.dt)
+            ground_check_distance = max(0.3, fall_distance + 0.15)
             for ox, oz in pts:
-                hit = raycast(p.world_position + Vec3(ox, 0.1, oz),
-                            Vec3(0, -1, 0), distance=100, ignore=[p])
+                hit = raycast(
+                    p.world_position + Vec3(ox, 0.1, oz),
+                    Vec3(0, -1, 0),
+                    distance=ground_check_distance,
+                    ignore=[p],
+                )
                 if hit.hit and hit.world_point.y > ground_y:
                     ground_y = hit.world_point.y
 
