@@ -137,7 +137,7 @@ game = {
 }
 
 
-def start_game(save_path, is_new, use_template=False):
+def start_game(save_path, is_new, use_template=False, world_type='flat', seed=0):
     sound_mgr.stop_bgm()
     props = WindowProperties()
     props.setCursorHidden(True)
@@ -153,6 +153,8 @@ def start_game(save_path, is_new, use_template=False):
     game['player'] = PlayerController((WORLD_SIZE / 2, 3, WORLD_SIZE / 2))
     camera.fov = settings.get('fov')
     game['world'] = World(save_path)
+    game['world'].world_type = world_type
+    game['world'].seed = seed
 
     if is_new:
         if use_template:
@@ -162,7 +164,13 @@ def start_game(save_path, is_new, use_template=False):
             else:
                 game['world'].generate_flat()
         else:
-            game['world'].generate_flat()
+            if world_type == 'normal':
+                spawn_y = game['world'].generate_normal(seed)
+                game['player'].entity.position = (
+                    WORLD_SIZE / 2, spawn_y + 1, WORLD_SIZE / 2
+                )
+            else:
+                game['world'].generate_flat()
         game['player'].yaw = 0
         game['player'].pitch = -17.5
         game['player'].entity.rotation_y = 0
@@ -676,10 +684,10 @@ def update():
         last_position is None
         or (current_position[0] - last_position[0]) ** 2
         + (current_position[1] - last_position[1]) ** 2
-        + (current_position[2] - last_position[2]) ** 2 >= 1.0
+        + (current_position[2] - last_position[2]) ** 2 >= 4.0
     )
     if game['cull_timer'] <= 0 and moved_enough:
-        game['cull_timer'] = 0.25
+        game['cull_timer'] = 0.15
         game['last_cull_position'] = current_position
         px, py, pz = current_position
         render_distance = settings.get('render_distance')
@@ -700,8 +708,6 @@ def update():
         game['world'],
         game['player'].gravity_on,
     )
-
-    _limit_fps()
     
 
 def input(key):

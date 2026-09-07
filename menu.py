@@ -1,5 +1,6 @@
 import json
 import os
+import hashlib
 from ursina import Entity, Text, Button, camera, color, destroy
 from ursina.prefabs.input_field import InputField
 from config import SAVE_DIR
@@ -11,6 +12,7 @@ class WorldSelectMenu:
         self.on_back = on_back
         self.root = Entity(parent=camera.ui)
         self.use_template = True
+        self.world_type = 'flat'
 
         Text(parent=self.root, text='SELECT WORLD',
              origin=(0, 0), y=0.4, scale=2.5, color=color.white)
@@ -24,7 +26,7 @@ class WorldSelectMenu:
                  origin=(0, 0), y=y, scale=1.2, color=color.gray)
             y -= 0.06
 
-        for f in files[:8]:
+        for f in files[:6]:
             info = self._get_info(f)
             Button(
                 parent=self.root, text=info,
@@ -48,7 +50,15 @@ class WorldSelectMenu:
             color=color.azure,
             on_click=self._toggle_template,
         )
-        y -= 0.08
+        y -= 0.07
+
+        self.type_toggle = Button(
+            parent=self.root, text='TYPE: FLAT',
+            y=y, scale=(0.32, 0.05),
+            color=color.dark_gray,
+            on_click=self._toggle_world_type,
+        )
+        y -= 0.07
 
         Button(
             parent=self.root, text='CREATE',
@@ -92,6 +102,12 @@ class WorldSelectMenu:
             color.azure if self.use_template else color.dark_gray
         )
 
+    def _toggle_world_type(self):
+        self.world_type = 'normal' if self.world_type == 'flat' else 'flat'
+        self.type_toggle.text = f'TYPE: {self.world_type.upper()}'
+        if self.world_type == 'normal' and self.use_template:
+            self._toggle_template()
+
     def _create(self):
         name = self.input.text.strip()
         if not name:
@@ -103,8 +119,16 @@ class WorldSelectMenu:
         path = os.path.join(SAVE_DIR, f'{safe}.json')
         if os.path.exists(path):
             return
+        digest = hashlib.sha256(safe.encode('utf-8')).digest()
+        seed = int.from_bytes(digest[:8], 'big')
         self.close()
-        self.on_select(path, is_new=True, use_template=self.use_template)
+        self.on_select(
+            path,
+            is_new=True,
+            use_template=self.use_template,
+            world_type=self.world_type,
+            seed=seed,
+        )
 
     @staticmethod
     def _next_default_world_name():

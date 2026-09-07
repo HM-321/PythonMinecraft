@@ -117,11 +117,9 @@ class PlayerController:
     
     
     def _update_camera_offset(self, sneak):
-        """スニーク中はカメラを少し下げる"""
-        target_y = 1.5 if not sneak else 1.2
-        # 補間で滑らかに
-        current = camera.y
-        camera.y += (target_y - current) * min(1, 15 * time.dt)
+        """スニーク中はカメラを少し下げる。"""
+        target_y = 1.2 if sneak else 1.5
+        camera.y += (target_y - camera.y) * min(1, 15 * time.dt)
         
     def update_movement(self):
         p = self.entity

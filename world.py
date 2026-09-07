@@ -9,6 +9,7 @@ from ursina import Entity, Mesh, Vec3, color, destroy, scene
 from block_types import BLOCK_TYPES
 from config import SAVE_VERSION, WORLD_SIZE
 from custom_mesh import make_face_atlas_cube
+from terrain_generator import TerrainGenerator
 
 
 LOD_CHUNK_SIZE = 10
@@ -26,6 +27,11 @@ class World:
         self.lod_entities = {}
         self.dirty_lod_chunks = set()
         self.lod_enabled = False
+        self.visible_near_chunks = set()
+        self.visible_lod_chunks = set()
+        self.world_type = 'flat'
+        self.seed = 0
+        self.terrain_heights = {}
 
     @staticmethod
     def _position_key(x, y, z):
@@ -104,6 +110,17 @@ class World:
         except ValueError:
             return False
 
+        # Normal地形は地下を最初からEntity化せず、掘った時だけ生成する。
+        replacement = None
+        if self.world_type == 'normal' and position[1] > -8:
+            below = (position[0], position[1] - 1, position[2])
+            if below not in self.blocks_by_position:
+                surface_y = self.terrain_heights.get(
+                    (position[0], position[2]), position[1]
+                )
+                replacement_id = 1 if below[1] >= surface_y - 3 else 2
+                replacement = (below, replacement_id)
+
         destroy(target)
         chunk_key = self._chunk_key(position[0], position[2])
         chunk_positions = self.blocks_by_chunk.get(chunk_key)
@@ -112,6 +129,9 @@ class World:
             if not chunk_positions:
                 self.blocks_by_chunk.pop(chunk_key, None)
         self.dirty_lod_chunks.add(chunk_key)
+        if replacement is not None:
+            below, replacement_id = replacement
+            self.place_block(*below, replacement_id)
         return True
 
     def clear(self):
@@ -129,11 +149,22 @@ class World:
         self.lod_entities.clear()
         self.dirty_lod_chunks.clear()
         self.lod_enabled = False
+        self.visible_near_chunks.clear()
+        self.visible_lod_chunks.clear()
 
     def dispose(self):
         self.clear()
 
+    def generate_normal(self, seed=0):
+        self.world_type = 'normal'
+        self.seed = int(seed)
+        generator = TerrainGenerator(self.seed)
+        self.terrain_heights = generator.generate_surface(self, WORLD_SIZE)
+        center = WORLD_SIZE // 2
+        return self.terrain_heights.get((center, center), 6) + 1
+
     def generate_flat(self):
+        self.world_type = 'flat'
         for z in range(WORLD_SIZE):
             for x in range(WORLD_SIZE):
                 self.place_block(x, 0, z, 0)
@@ -267,6 +298,20 @@ class World:
 
         self.lod_entities[chunk_key] = new_entities
 
+    def _set_near_chunk_enabled(self, chunk_key, enabled, player_y,
+                                vertical_distance):
+        for position in self.blocks_by_chunk.get(chunk_key, ()):
+            block = self.blocks_by_position.get(position)
+            if block is not None:
+                block.enabled = (
+                    enabled
+                    and abs(position[1] - player_y) < vertical_distance
+                )
+
+    def _set_lod_chunk_enabled(self, chunk_key, enabled):
+        for entity in self.lod_entities.get(chunk_key, ()):
+            entity.enabled = enabled
+
     def update_visibility(self, player_x, player_y, player_z,
                           vertical_distance, render_distance):
         self.rebuild_dirty_lod()
@@ -278,10 +323,8 @@ class World:
         lod_distance2 = lod_distance * lod_distance
         high_altitude = abs(player_y) >= vertical_distance - 2
 
-        # チャンク単位で通常描画とLODを排他的に切り替える。
-        # 同じ面の重複表示を避けるため、同一チャンクで両方は表示しない。
-        near_chunks = set()
-        lod_chunks = set()
+        next_near = set()
+        next_lod = set()
         all_chunks = set(self.lod_entities)
         all_chunks.update(self.blocks_by_chunk)
 
@@ -293,25 +336,29 @@ class World:
                 (center_x - player_x) ** 2
                 + (center_z - player_z) ** 2
             )
-
             if not high_altitude and distance2 <= near_distance2:
-                near_chunks.add(chunk_key)
+                next_near.add(chunk_key)
             elif distance2 <= lod_distance2:
-                lod_chunks.add(chunk_key)
+                next_lod.add(chunk_key)
 
-        for block in self.boxes:
-            x, y, z = block.block_position
-            block.enabled = (
-                self._chunk_key(x, z) in near_chunks
-                and abs(y - player_y) < vertical_distance
+        # 全ブロックを毎回触らず、表示状態が変わったチャンクだけ更新する。
+        for chunk_key in self.visible_near_chunks - next_near:
+            self._set_near_chunk_enabled(
+                chunk_key, False, player_y, vertical_distance
+            )
+        for chunk_key in next_near - self.visible_near_chunks:
+            self._set_near_chunk_enabled(
+                chunk_key, True, player_y, vertical_distance
             )
 
-        for chunk_key, entities in self.lod_entities.items():
-            enabled = chunk_key in lod_chunks
-            for entity in entities:
-                entity.enabled = enabled
+        for chunk_key in self.visible_lod_chunks - next_lod:
+            self._set_lod_chunk_enabled(chunk_key, False)
+        for chunk_key in next_lod - self.visible_lod_chunks:
+            self._set_lod_chunk_enabled(chunk_key, True)
 
-        self.lod_enabled = bool(lod_chunks)
+        self.visible_near_chunks = next_near
+        self.visible_lod_chunks = next_lod
+        self.lod_enabled = bool(next_lod)
 
     def get_chunk_positions(self, chunk_x, chunk_z):
         return tuple(self.blocks_by_chunk.get((chunk_x, chunk_z), ()))
@@ -332,6 +379,9 @@ class World:
             'name': os.path.basename(self.save_path)[:-5],
             'last_played': datetime.now().isoformat(),
             'player': [player_entity.x, player_entity.y, player_entity.z],
+            'world_type': self.world_type,
+            'seed': self.seed,
+            'terrain_heights': [[x, z, y] for (x, z), y in self.terrain_heights.items()],
             'blocks': [self._block_to_save(block) for block in self.boxes],
         }
         with open(self.save_path, 'w', encoding='utf-8') as save_file:
@@ -358,6 +408,12 @@ class World:
             data = json.load(save_file)
 
         self.clear()
+        self.world_type = data.get('world_type', 'flat')
+        self.seed = int(data.get('seed', 0))
+        self.terrain_heights = {
+            (int(x), int(z)): int(y)
+            for x, z, y in data.get('terrain_heights', [])
+        }
         for entry in data['blocks']:
             bx, by, bz, block_id = entry[:4]
             orientation = entry[4] if len(entry) > 4 else 'y'
