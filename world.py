@@ -19,6 +19,8 @@ class World:
         self.save_path = save_path
         self.boxes = []
         self.blocks_by_position = {}
+        # チャンクごとのブロック座標索引
+        self.blocks_by_chunk = defaultdict(set)
 
         # 遠距離表示用。チャンクごと、ブロック種類ごとに上面を結合する。
         self.lod_entities = {}
@@ -80,9 +82,11 @@ class World:
             block.set_bin('transparent', 30)
             block.setDepthWrite(False)
 
+        chunk_key = self._chunk_key(position[0], position[2])
         self.boxes.append(block)
         self.blocks_by_position[position] = block
-        self.dirty_lod_chunks.add(self._chunk_key(position[0], position[2]))
+        self.blocks_by_chunk[chunk_key].add(position)
+        self.dirty_lod_chunks.add(chunk_key)
         return block
 
     def remove_block(self, block):
@@ -101,7 +105,13 @@ class World:
             return False
 
         destroy(target)
-        self.dirty_lod_chunks.add(self._chunk_key(position[0], position[2]))
+        chunk_key = self._chunk_key(position[0], position[2])
+        chunk_positions = self.blocks_by_chunk.get(chunk_key)
+        if chunk_positions is not None:
+            chunk_positions.discard(position)
+            if not chunk_positions:
+                self.blocks_by_chunk.pop(chunk_key, None)
+        self.dirty_lod_chunks.add(chunk_key)
         return True
 
     def clear(self):
@@ -109,6 +119,7 @@ class World:
             destroy(block)
         self.boxes.clear()
         self.blocks_by_position.clear()
+        self.blocks_by_chunk.clear()
         self.clear_lod()
 
     def clear_lod(self):
@@ -203,10 +214,10 @@ class World:
 
         # texture, UV範囲, 色ごとに結合する。透明ブロックは近距離表示のみ。
         groups = defaultdict(lambda: {'vertices': [], 'triangles': [], 'uvs': []})
-        for (x, y, z), block in self.blocks_by_position.items():
-            if not (start_x <= x < end_x and start_z <= z < end_z):
-                continue
-            if self._is_transparent(block):
+        for position in self.blocks_by_chunk.get(chunk_key, ()):
+            x, y, z = position
+            block = self.blocks_by_position.get(position)
+            if block is None or self._is_transparent(block):
                 continue
 
             for face_name, (offset, make_vertices) in face_definitions.items():
@@ -272,10 +283,7 @@ class World:
         near_chunks = set()
         lod_chunks = set()
         all_chunks = set(self.lod_entities)
-        all_chunks.update(
-            self._chunk_key(x, z)
-            for x, _y, z in self.blocks_by_position
-        )
+        all_chunks.update(self.blocks_by_chunk)
 
         for chunk_key in all_chunks:
             chunk_x, chunk_z = chunk_key
@@ -304,6 +312,19 @@ class World:
                 entity.enabled = enabled
 
         self.lod_enabled = bool(lod_chunks)
+
+    def get_chunk_positions(self, chunk_x, chunk_z):
+        return tuple(self.blocks_by_chunk.get((chunk_x, chunk_z), ()))
+
+    def get_chunk_blocks(self, chunk_x, chunk_z):
+        return tuple(
+            self.blocks_by_position[position]
+            for position in self.get_chunk_positions(chunk_x, chunk_z)
+            if position in self.blocks_by_position
+        )
+
+    def loaded_chunk_keys(self):
+        return tuple(self.blocks_by_chunk.keys())
 
     def save(self, player_entity):
         data = {
