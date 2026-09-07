@@ -256,36 +256,54 @@ class World:
 
         self.lod_entities[chunk_key] = new_entities
 
-    def update_lod(self, player_x, player_y, player_z,
-                   vertical_distance, render_distance):
+    def update_visibility(self, player_x, player_y, player_z,
+                          vertical_distance, render_distance):
         self.rebuild_dirty_lod()
 
-        # 高度による切り替えにはヒステリシスを持たせる。
-        height = abs(player_y)
-        enable_height = vertical_distance - 2
-        disable_height = max(4, vertical_distance - 5)
-        self.lod_enabled = (
-            height >= enable_height
-            if not self.lod_enabled
-            else height >= disable_height
+        chunk_radius = LOD_CHUNK_SIZE * 0.75
+        near_distance = max(8.0, render_distance * 0.6)
+        lod_distance = render_distance + chunk_radius
+        near_distance2 = near_distance * near_distance
+        lod_distance2 = lod_distance * lod_distance
+        high_altitude = abs(player_y) >= vertical_distance - 2
+
+        # チャンク単位で通常描画とLODを排他的に切り替える。
+        # 同じ面の重複表示を避けるため、同一チャンクで両方は表示しない。
+        near_chunks = set()
+        lod_chunks = set()
+        all_chunks = set(self.lod_entities)
+        all_chunks.update(
+            self._chunk_key(x, z)
+            for x, _y, z in self.blocks_by_position
         )
 
-        # LODを全ワールド一斉表示せず、通常描画と同じ水平距離だけ表示する。
-        # チャンク半径分を加えて、描画距離の端に不自然な欠けが出ないようにする。
-        visible_distance = render_distance + LOD_CHUNK_SIZE * 0.75
-        visible_distance2 = visible_distance * visible_distance
-
-        for (chunk_x, chunk_z), entities in self.lod_entities.items():
+        for chunk_key in all_chunks:
+            chunk_x, chunk_z = chunk_key
             center_x = chunk_x * LOD_CHUNK_SIZE + LOD_CHUNK_SIZE / 2
             center_z = chunk_z * LOD_CHUNK_SIZE + LOD_CHUNK_SIZE / 2
-            in_range = (
+            distance2 = (
                 (center_x - player_x) ** 2
                 + (center_z - player_z) ** 2
-                <= visible_distance2
             )
-            enabled = self.lod_enabled and in_range
+
+            if not high_altitude and distance2 <= near_distance2:
+                near_chunks.add(chunk_key)
+            elif distance2 <= lod_distance2:
+                lod_chunks.add(chunk_key)
+
+        for block in self.boxes:
+            x, y, z = block.block_position
+            block.enabled = (
+                self._chunk_key(x, z) in near_chunks
+                and abs(y - player_y) < vertical_distance
+            )
+
+        for chunk_key, entities in self.lod_entities.items():
+            enabled = chunk_key in lod_chunks
             for entity in entities:
                 entity.enabled = enabled
+
+        self.lod_enabled = bool(lod_chunks)
 
     def save(self, player_entity):
         data = {

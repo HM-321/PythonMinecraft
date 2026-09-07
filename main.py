@@ -686,14 +686,7 @@ def update():
         horizontal_distance2 = render_distance * render_distance
         vertical_distance = max(12, render_distance)
 
-        for block in game['world'].boxes:
-            horizontal2 = (block.x - px) ** 2 + (block.z - pz) ** 2
-            block.enabled = (
-                horizontal2 < horizontal_distance2
-                and abs(block.y - py) < vertical_distance
-            )
-
-        game['world'].update_lod(
+        game['world'].update_visibility(
             px, py, pz,
             vertical_distance,
             render_distance,
