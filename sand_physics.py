@@ -5,7 +5,8 @@ SAND_ID = next(i for i, block in enumerate(BLOCK_TYPES) if block[0] == 'Sand')
 FALL_ACCELERATION = 24.0
 TERMINAL_SPEED = 28.0
 COLUMN_INTERVAL = 0.11
-MIN_Y = -64
+MIN_Y = -30
+MIN_FALL_TIME = 0.22
 
 
 class SandPhysics:
@@ -48,16 +49,16 @@ class SandPhysics:
             model='cube',
             texture=texture,
             color=block_color,
-            position=(x, y - 0.5, z),
+            position=(x, y, z),
             collider=None,
-            origin_y=0,
+            origin_y=0.5,
         )
         if entity.texture:
             entity.texture.filtering = None
         return entity
 
     def start_remote(self, x, y, z, fall_id=None):
-        position = (int(x), int(y), int(z))
+        position = tuple(int(round(v)) for v in (x, y, z))
         existing = self.world.get_block(*position)
         if existing:
             self.world.remove_block(existing)
@@ -69,16 +70,27 @@ class SandPhysics:
             'y': float(position[1]),
             'velocity': 0.0,
             'remote': True,
+            'elapsed': 0.0,
+            'pending_land': None,
         })
 
     def land_remote(self, fall_id, x, y, z, block_id=SAND_ID):
-        for index, item in enumerate(self.falling):
+        # サーバーの着地通知が即座に届いても、最低時間はアニメーションする。
+        for item in self.falling:
             if item.get('id') == fall_id:
-                destroy(item['entity'])
-                self.falling.pop(index)
-                break
+                item['pending_land'] = {
+                    'x': int(round(x)),
+                    'y': int(round(y)),
+                    'z': int(round(z)),
+                    'block_id': int(block_id),
+                }
+                return
+
+        # 開始通知より先に着地通知が届いた場合の保険。
         if not self.world.get_block(x, y, z):
-            self.world.place_block(x, y, z, block_id)
+            self.world.place_block(
+                int(round(x)), int(round(y)), int(round(z)), int(block_id)
+            )
 
     def _start_unstable_sand(self):
         candidates = []
@@ -107,31 +119,65 @@ class SandPhysics:
             'y': float(y),
             'velocity': 0.0,
             'remote': False,
+            'elapsed': 0.0,
+            'pending_land': None,
         })
         self.column_cooldowns[(x, z)] = COLUMN_INTERVAL
 
     def _update_visuals(self, dt):
         alive = []
         for item in self.falling:
+            item['elapsed'] = item.get('elapsed', 0.0) + dt
+            item['velocity'] = min(
+                TERMINAL_SPEED,
+                item['velocity'] + FALL_ACCELERATION * dt,
+            )
+            next_y = item['y'] - item['velocity'] * dt
+
             if item.get('remote'):
-                # Remoteはサーバーの着地通知まで視覚的に落とし続ける。
-                item['velocity'] = min(TERMINAL_SPEED, item['velocity'] + FALL_ACCELERATION * dt)
-                item['y'] -= item['velocity'] * dt
-                item['entity'].y = item['y'] - 0.5
+                pending = item.get('pending_land')
+                if pending is not None:
+                    target_y = float(pending['y'])
+                    next_y = max(target_y, next_y)
+                    if item['elapsed'] >= MIN_FALL_TIME and next_y <= target_y + 1e-4:
+                        destroy(item['entity'])
+                        if not self.world.get_block(
+                            pending['x'], pending['y'], pending['z']
+                        ):
+                            self.world.place_block(
+                                pending['x'], pending['y'], pending['z'],
+                                pending['block_id'],
+                            )
+                        continue
+                item['y'] = next_y
+                item['entity'].y = next_y
                 alive.append(item)
                 continue
 
-            item['velocity'] = min(TERMINAL_SPEED, item['velocity'] + FALL_ACCELERATION * dt)
-            next_y = item['y'] - item['velocity'] * dt
-            landing_y = self._landing_y(item['x'], item['z'], item['y'], next_y)
+            landing_y = self._landing_y(
+                item['x'], item['z'], item['y'], next_y
+            )
             if landing_y is None:
                 item['y'] = next_y
-                item['entity'].y = item['y'] - 0.5
+                item['entity'].y = next_y
+                alive.append(item)
+                continue
+
+            # 1マス落下でも最低時間を保証し、瞬間移動に見えないようにする。
+            if item['elapsed'] < MIN_FALL_TIME:
+                remaining = max(0.001, MIN_FALL_TIME - item['elapsed'])
+                item['y'] = max(
+                    float(landing_y),
+                    item['y'] - (item['y'] - landing_y) * min(1.0, dt / remaining),
+                )
+                item['entity'].y = item['y']
                 alive.append(item)
                 continue
 
             destroy(item['entity'])
-            if not self.world.get_block(item['x'], landing_y, item['z']):
+            if landing_y > MIN_Y and not self.world.get_block(
+                item['x'], landing_y, item['z']
+            ):
                 self.world.place_block(item['x'], landing_y, item['z'], SAND_ID)
             self.column_cooldowns[(item['x'], item['z'])] = COLUMN_INTERVAL
         self.falling = alive

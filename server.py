@@ -652,7 +652,7 @@ class MinecraftBuildServer:
 
     def _handle_block_request(self, session, message):
         try:
-            position = tuple(int(message[key]) for key in ('x', 'y', 'z'))
+            position = tuple(int(round(float(message[key]))) for key in ('x', 'y', 'z'))
             block_id = int(message.get('block_id', 0))
         except (KeyError, TypeError, ValueError):
             session.send({'type': 'error', 'message': 'invalid block request'})
