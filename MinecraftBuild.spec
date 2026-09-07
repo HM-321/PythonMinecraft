@@ -1,74 +1,67 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+import platform
 
-block_cipher = None
-
-datas = [
-    ('Template.json', '.'),
-    ('textures', 'textures'),
-    ('sounds', 'sounds'),
-    ('fonts', 'fonts'),
-]
-datas += collect_data_files('ursina')
-datas += collect_data_files('panda3d')
-datas += collect_data_files('direct')
-
-hiddenimports = collect_submodules('ursina')
-hiddenimports += collect_submodules('direct')
-hiddenimports += ['app_runtime']
-
-excluded_modules = [
-    'panda3d.rocket',
-    'sdl2',
-    'sdl2.ext',
-]
 
 a = Analysis(
-    ['main.py'],
+    ["server.py"],
     pathex=[],
     binaries=[],
-    datas=datas,
-    hiddenimports=hiddenimports,
+    datas=[
+        ("Template.json", "."),
+    ],
+    hiddenimports=[
+        "tkinter",
+        "tkinter.messagebox",
+    ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=['pyi_runtime_hook.py'],
-    excludes=excluded_modules,
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
+    runtime_hooks=[],
+    excludes=[
+        "ursina",
+        "panda3d",
+        "pygame",
+        "screeninfo",
+        "hid",
+    ],
     noarchive=False,
-    target_arch='arm64',
+    optimize=0,
 )
-a.binaries = [entry for entry in a.binaries if 'panda3d/rocket' not in entry[1]]
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
-    name='MinecraftBuild',
+    exclude_binaries=True,
+    name="MinecraftBuildServer",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
-    console=False,
+    upx=True,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch='arm64',
+    target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
-app = BUNDLE(
+
+coll = COLLECT(
     exe,
-    name='MinecraftBuild.app',
-    icon=None,
-    bundle_identifier='local.minecraftbuild.game',
-    info_plist={
-        'NSHighResolutionCapable': True,
-        'LSMinimumSystemVersion': '11.0',
-    },
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="MinecraftBuildServer",
 )
+
+if platform.system() == "Darwin":
+    app = BUNDLE(
+        coll,
+        name="MinecraftBuildServer.app",
+        icon=None,
+        bundle_identifier=None,
+    )
