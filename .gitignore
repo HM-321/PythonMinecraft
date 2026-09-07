@@ -24,6 +24,11 @@ dist/
 .idea/
 *.swp
 
+# Local backups
+*.bak
+*.stage*.bak
+optimization_backup/
+
 # macOS
 .DS_Store
 
