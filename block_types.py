@@ -4,8 +4,14 @@ from ursina import color
 #   str → 全面同じ
 #   dict {'atlas': ..., 'icon': ...} → 面別 + アイコン別指定
 BLOCK_TYPES = [
-    ('Grass', color.white, {'atlas': 'textures/grass_atlas.png',
-                             'icon': 'textures/grass_icon.png'}),
+    (
+        "Grass", 
+        color.white,{
+            "atlas": "textures/grass_atlas.png",
+            "icon": "textures/grass_icon.png",
+            "top": "textures/grass_top.png",
+        },
+    ),
     ('Dirt',  color.white, 'textures/dirt.png'),
     ('Stone', color.white, 'textures/stone.png'),
     ('Wood',  color.white, 'textures/wood.png'),
