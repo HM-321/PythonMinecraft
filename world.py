@@ -1,25 +1,37 @@
 import json
 import os
+from collections import defaultdict
 from datetime import datetime
 
-from panda3d.core import TransparencyAttrib
-from ursina import Entity, destroy, scene
+from panda3d.core import TransparencyAttrib, Texture
+from ursina import Entity, Mesh, Vec3, color, destroy, scene
 
 from block_types import BLOCK_TYPES
 from config import SAVE_VERSION, WORLD_SIZE
 from custom_mesh import make_face_atlas_cube
 
 
+LOD_CHUNK_SIZE = 10
+
+
 class World:
     def __init__(self, save_path):
         self.save_path = save_path
-        # boxesは既存コードとの互換用。座標検索は辞書を使う。
         self.boxes = []
         self.blocks_by_position = {}
+
+        # 遠距離表示用。チャンクごと、ブロック種類ごとに上面を結合する。
+        self.lod_entities = {}
+        self.dirty_lod_chunks = set()
+        self.lod_enabled = False
 
     @staticmethod
     def _position_key(x, y, z):
         return int(round(x)), int(round(y)), int(round(z))
+
+    @staticmethod
+    def _chunk_key(x, z):
+        return int(x) // LOD_CHUNK_SIZE, int(z) // LOD_CHUNK_SIZE
 
     def get_block(self, x, y, z):
         return self.blocks_by_position.get(self._position_key(x, y, z))
@@ -70,6 +82,7 @@ class World:
 
         self.boxes.append(block)
         self.blocks_by_position[position] = block
+        self.dirty_lod_chunks.add(self._chunk_key(position[0], position[2]))
         return block
 
     def remove_block(self, block):
@@ -88,6 +101,7 @@ class World:
             return False
 
         destroy(target)
+        self.dirty_lod_chunks.add(self._chunk_key(position[0], position[2]))
         return True
 
     def clear(self):
@@ -95,11 +109,183 @@ class World:
             destroy(block)
         self.boxes.clear()
         self.blocks_by_position.clear()
+        self.clear_lod()
+
+    def clear_lod(self):
+        for entities in self.lod_entities.values():
+            for entity in entities:
+                destroy(entity)
+        self.lod_entities.clear()
+        self.dirty_lod_chunks.clear()
+        self.lod_enabled = False
+
+    def dispose(self):
+        self.clear()
 
     def generate_flat(self):
         for z in range(WORLD_SIZE):
             for x in range(WORLD_SIZE):
                 self.place_block(x, 0, z, 0)
+
+    @staticmethod
+    def _is_transparent(block):
+        if block is None:
+            return True
+        name, _, texture_info = BLOCK_TYPES[block.block_type]
+        return name == 'Glass' or texture_info is None
+
+    @staticmethod
+    def _face_material(block, face_name):
+        _, block_color, texture_info = BLOCK_TYPES[block.block_type]
+        if not isinstance(texture_info, dict):
+            return texture_info, (0.0, 1.0), block_color
+
+        texture_path = texture_info.get('atlas')
+        orientation = getattr(block, 'orientation', 'y')
+        top_face = f'+{orientation}'
+        bottom_face = f'-{orientation}'
+
+        if face_name == top_face:
+            uv_range = (2 / 3, 1.0)
+        elif face_name == bottom_face:
+            uv_range = (0.0, 1 / 3)
+        else:
+            uv_range = (1 / 3, 2 / 3)
+        return texture_path, uv_range, block_color
+
+    def rebuild_dirty_lod(self):
+        if not self.dirty_lod_chunks:
+            return
+
+        dirty = tuple(self.dirty_lod_chunks)
+        self.dirty_lod_chunks.clear()
+        for chunk_key in dirty:
+            self._rebuild_lod_chunk(chunk_key)
+
+    def _rebuild_lod_chunk(self, chunk_key):
+        old_entities = self.lod_entities.pop(chunk_key, [])
+        for entity in old_entities:
+            destroy(entity)
+
+        chunk_x, chunk_z = chunk_key
+        start_x = chunk_x * LOD_CHUNK_SIZE
+        start_z = chunk_z * LOD_CHUNK_SIZE
+        end_x = start_x + LOD_CHUNK_SIZE
+        end_z = start_z + LOD_CHUNK_SIZE
+
+        # 面名: (隣接座標, 4頂点)。論理Yはブロック上面を表す。
+        face_definitions = {
+            '+y': ((0, 1, 0), lambda x, y, z: [
+                Vec3(x - .5, y, z - .5), Vec3(x - .5, y, z + .5),
+                Vec3(x + .5, y, z + .5), Vec3(x + .5, y, z - .5),
+            ]),
+            '-y': ((0, -1, 0), lambda x, y, z: [
+                Vec3(x - .5, y - 1, z + .5), Vec3(x - .5, y - 1, z - .5),
+                Vec3(x + .5, y - 1, z - .5), Vec3(x + .5, y - 1, z + .5),
+            ]),
+            '+x': ((1, 0, 0), lambda x, y, z: [
+                Vec3(x + .5, y - 1, z - .5), Vec3(x + .5, y, z - .5),
+                Vec3(x + .5, y, z + .5), Vec3(x + .5, y - 1, z + .5),
+            ]),
+            '-x': ((-1, 0, 0), lambda x, y, z: [
+                Vec3(x - .5, y - 1, z + .5), Vec3(x - .5, y, z + .5),
+                Vec3(x - .5, y, z - .5), Vec3(x - .5, y - 1, z - .5),
+            ]),
+            '+z': ((0, 0, 1), lambda x, y, z: [
+                Vec3(x + .5, y - 1, z + .5), Vec3(x + .5, y, z + .5),
+                Vec3(x - .5, y, z + .5), Vec3(x - .5, y - 1, z + .5),
+            ]),
+            '-z': ((0, 0, -1), lambda x, y, z: [
+                Vec3(x - .5, y - 1, z - .5), Vec3(x - .5, y, z - .5),
+                Vec3(x + .5, y, z - .5), Vec3(x + .5, y - 1, z - .5),
+            ]),
+        }
+
+        # texture, UV範囲, 色ごとに結合する。透明ブロックは近距離表示のみ。
+        groups = defaultdict(lambda: {'vertices': [], 'triangles': [], 'uvs': []})
+        for (x, y, z), block in self.blocks_by_position.items():
+            if not (start_x <= x < end_x and start_z <= z < end_z):
+                continue
+            if self._is_transparent(block):
+                continue
+
+            for face_name, (offset, make_vertices) in face_definitions.items():
+                ox, oy, oz = offset
+                neighbor = self.get_block(x + ox, y + oy, z + oz)
+                if neighbor is not None and not self._is_transparent(neighbor):
+                    continue
+
+                texture_path, (uv_min, uv_max), block_color = self._face_material(
+                    block, face_name
+                )
+                color_key = tuple(float(value) for value in block_color)
+                group = groups[(texture_path, uv_min, uv_max, color_key)]
+                base = len(group['vertices'])
+                group['vertices'].extend(make_vertices(x, y, z))
+                group['triangles'].extend([
+                    base, base + 1, base + 2,
+                    base, base + 2, base + 3,
+                ])
+                group['uvs'].extend([
+                    (0, uv_min), (0, uv_max),
+                    (1, uv_max), (1, uv_min),
+                ])
+
+        new_entities = []
+        for (texture_path, _uv_min, _uv_max, color_key), data in groups.items():
+            lod = Entity(
+                parent=scene,
+                model=Mesh(
+                    vertices=data['vertices'],
+                    triangles=data['triangles'],
+                    uvs=data['uvs'],
+                    mode='triangle',
+                    static=True,
+                ),
+                texture=texture_path,
+                color=color.rgba(*color_key),
+                collider=None,
+                double_sided=True,
+                enabled=self.lod_enabled,
+            )
+            if lod.texture:
+                lod.texture.filtering = None
+                lod.texture.wrap_u = Texture.WM_repeat
+                lod.texture.wrap_v = Texture.WM_repeat
+            new_entities.append(lod)
+
+        self.lod_entities[chunk_key] = new_entities
+
+    def update_lod(self, player_x, player_y, player_z,
+                   vertical_distance, render_distance):
+        self.rebuild_dirty_lod()
+
+        # 高度による切り替えにはヒステリシスを持たせる。
+        height = abs(player_y)
+        enable_height = vertical_distance - 2
+        disable_height = max(4, vertical_distance - 5)
+        self.lod_enabled = (
+            height >= enable_height
+            if not self.lod_enabled
+            else height >= disable_height
+        )
+
+        # LODを全ワールド一斉表示せず、通常描画と同じ水平距離だけ表示する。
+        # チャンク半径分を加えて、描画距離の端に不自然な欠けが出ないようにする。
+        visible_distance = render_distance + LOD_CHUNK_SIZE * 0.75
+        visible_distance2 = visible_distance * visible_distance
+
+        for (chunk_x, chunk_z), entities in self.lod_entities.items():
+            center_x = chunk_x * LOD_CHUNK_SIZE + LOD_CHUNK_SIZE / 2
+            center_z = chunk_z * LOD_CHUNK_SIZE + LOD_CHUNK_SIZE / 2
+            in_range = (
+                (center_x - player_x) ** 2
+                + (center_z - player_z) ** 2
+                <= visible_distance2
+            )
+            enabled = self.lod_enabled and in_range
+            for entity in entities:
+                entity.enabled = enabled
 
     def save(self, player_entity):
         data = {

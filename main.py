@@ -126,7 +126,8 @@ game = {
     'click_cd': 0,
     'scroll_cd': 0,
     'esc_cd': 0,
-    'cull_counter': 0,
+    'cull_timer': 0.0,
+    'last_cull_position': None,
     'network_client': None,
     'network_pending': None,
     'network_player_id': None,
@@ -341,8 +342,7 @@ def _save_and_quit():
             destroy(getattr(obj, 'root', obj))
 
     if game.get('world'):
-        for block in game['world'].boxes:
-            destroy(block)
+        game['world'].dispose()
     for remote in game.get('remote_players', {}).values():
         remote.destroy()
     if game.get('player'):
@@ -667,13 +667,37 @@ def update():
         game['selection'].hide()
 
     # ===== 距離カリング =====
-    game['cull_counter'] = (game['cull_counter'] + 1) % 5
-    if game['cull_counter'] == 0:
-        px, pz = player.entity.x, player.entity.z
-        rd = settings.get('render_distance')
-        rd2 = rd * rd
-        for b in game['world'].boxes:
-            b.enabled = ((b.x - px) ** 2 + (b.z - pz) ** 2) < rd2
+    # 全ブロック走査を5フレームごとではなく最大4回/秒に抑える。
+    # 高所・低所ではY距離も含め、遠い地面を描画対象から外す。
+    game['cull_timer'] -= time.dt
+    current_position = (player.entity.x, player.entity.y, player.entity.z)
+    last_position = game.get('last_cull_position')
+    moved_enough = (
+        last_position is None
+        or (current_position[0] - last_position[0]) ** 2
+        + (current_position[1] - last_position[1]) ** 2
+        + (current_position[2] - last_position[2]) ** 2 >= 1.0
+    )
+    if game['cull_timer'] <= 0 and moved_enough:
+        game['cull_timer'] = 0.25
+        game['last_cull_position'] = current_position
+        px, py, pz = current_position
+        render_distance = settings.get('render_distance')
+        horizontal_distance2 = render_distance * render_distance
+        vertical_distance = max(12, render_distance)
+
+        for block in game['world'].boxes:
+            horizontal2 = (block.x - px) ** 2 + (block.z - pz) ** 2
+            block.enabled = (
+                horizontal2 < horizontal_distance2
+                and abs(block.y - py) < vertical_distance
+            )
+
+        game['world'].update_lod(
+            px, py, pz,
+            vertical_distance,
+            render_distance,
+        )
 
     game['hotbar'].maybe_hide()
     game['debug'].update(
