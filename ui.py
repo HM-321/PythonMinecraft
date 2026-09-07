@@ -152,6 +152,7 @@ class DebugOverlay:
         self._process = psutil.Process(os.getpid())   # ← 追加
         self._mem_mb = 0
         self._mem_counter = 0
+        self._text_counter = 0
 
     def toggle(self):
         self.root.enabled = not self.root.enabled
@@ -173,6 +174,12 @@ class DebugOverlay:
         if self._mem_counter >= 1.0:
             self._mem_mb = self._process.memory_info().rss / 1024 / 1024
             self._mem_counter = 0
+
+        # Textの再生成は比較的重いため、表示内容は4Hzで更新する。
+        self._text_counter += dt
+        if self._text_counter < 0.25:
+            return
+        self._text_counter = 0
 
         p = player.entity
         block_name = BLOCK_TYPES[hotbar.selected][0]
