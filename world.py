@@ -303,6 +303,11 @@ class World:
 
             if distance2 <= near_distance2:
                 near_chunks.add(chunk_key)
+                # 高所では中央の地面もLODで描画する。
+                # 通常EntityはCollider用に残し、描画だけ後段で止める。
+                if abs(player_y) >= vertical_distance - 2:
+                    if chunk_key in self.lod_entities:
+                        lod_chunks.add(chunk_key)
 
             elif distance2 <= lod_distance2:
                 if chunk_key in self.lod_entities:
@@ -316,12 +321,17 @@ class World:
 
         for block in self.boxes:
             x, y, z = block.block_position
+            chunk_key = self._chunk_key(x, z)
 
-            # 高所ではプレイヤー周辺の足場だけ通常Entityとして残す。
-            # 遠い地面はLODだけに任せ、同じ面の二重描画を防ぐ。
+            # 高所の近距離ブロックはColliderだけ維持する。
+            # 不透明面はLOD側に任せて二重描画を防ぎ、Glassは通常描画する。
             block.enabled = (
-                self._chunk_key(x, z) in near_chunks
+                chunk_key in near_chunks
                 and abs(y - player_y) < entity_vertical_distance
+            )
+            block.visible = (
+                block.enabled
+                and (chunk_key not in lod_chunks or self._is_transparent(block))
             )
 
         for chunk_key, entities in self.lod_entities.items():
