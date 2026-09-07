@@ -276,7 +276,6 @@ class World:
         lod_distance = render_distance + chunk_radius
         near_distance2 = near_distance * near_distance
         lod_distance2 = lod_distance * lod_distance
-        high_altitude = abs(player_y) >= vertical_distance - 2
 
         # チャンク単位で通常描画とLODを排他的に切り替える。
         # 同じ面の重複表示を避けるため、同一チャンクで両方は表示しない。
@@ -294,7 +293,7 @@ class World:
                 + (center_z - player_z) ** 2
             )
 
-            if not high_altitude and distance2 <= near_distance2:
+            if distance2 <= near_distance2:
                 near_chunks.add(chunk_key)
             elif distance2 <= lod_distance2:
                 lod_chunks.add(chunk_key)

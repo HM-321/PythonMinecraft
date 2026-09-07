@@ -21,6 +21,12 @@ DEFAULT_WORLD_PATH = APP_DIR / 'saves' / 'server_world.json'
 DEFAULT_MAX_PLAYERS = 8
 MAX_PLAYERS_LIMIT = 128
 SAVE_INTERVAL = 30.0
+SAND_BLOCK_ID = 5
+SAND_TICK = 0.04
+SAND_COLUMN_INTERVAL = 0.11
+SAND_ACCELERATION = 24.0
+SAND_TERMINAL_SPEED = 28.0
+SAND_MIN_Y = -64
 
 
 def get_local_ip():
@@ -122,6 +128,10 @@ class MinecraftBuildServer:
         self.stop_event = threading.Event()
         self.listener = None
         self.next_player_id = 1
+        self.falling_sand = {}
+        self.sand_lock = threading.Lock()
+        self.next_fall_id = 1
+        self.sand_column_ready = {}
 
     def serve_forever(self):
         self._run_control_panel()
@@ -132,6 +142,7 @@ class MinecraftBuildServer:
         self.listener.bind((self.host, self.port))
         self.listener.listen(max(self.max_players, 8))
         self.listener.settimeout(1.0)
+        threading.Thread(target=self._sand_loop, daemon=True).start()
         display_host = get_local_ip() if self.host in ('', '0.0.0.0') else self.host
         print(f'MinecraftBuild server listening on {display_host}:{self.port}')
         last_save = time.monotonic()
@@ -696,6 +707,89 @@ class MinecraftBuildServer:
             if overlaps:
                 return True
         return False
+
+
+    def _sand_loop(self):
+        last = time.monotonic()
+        while not self.stop_event.wait(SAND_TICK):
+            now = time.monotonic()
+            dt = min(0.1, now - last)
+            last = now
+            with self.sand_lock:
+                self._start_unstable_sand(now)
+                self._advance_falling_sand(dt, now)
+
+    def _start_unstable_sand(self, now):
+        falling_sources = {item['source'] for item in self.falling_sand.values()}
+        candidates = []
+        for (x, y, z), (block_id, orientation) in tuple(self.world.blocks.items()):
+            if block_id != SAND_BLOCK_ID or (x, y, z) in falling_sources:
+                continue
+            if y <= SAND_MIN_Y or (x, y - 1, z) in self.world.blocks:
+                continue
+            column = (x, z)
+            if now < self.sand_column_ready.get(column, 0.0):
+                continue
+            candidates.append((y, x, z, orientation))
+        if not candidates:
+            return
+
+        y, x, z, orientation = min(candidates)
+        source = (x, y, z)
+        current = self.world.blocks.get(source)
+        if not current or current[0] != SAND_BLOCK_ID:
+            return
+        del self.world.blocks[source]
+        fall_id = self.next_fall_id
+        self.next_fall_id += 1
+        self.falling_sand[fall_id] = {
+            'source': source, 'x': x, 'z': z, 'y': float(y),
+            'velocity': 0.0, 'orientation': orientation,
+        }
+        self.sand_column_ready[(x, z)] = now + SAND_COLUMN_INTERVAL
+        self._broadcast({
+            'type': 'sand_fall_start', 'fall_id': fall_id,
+            'x': x, 'y': y, 'z': z, 'block_id': SAND_BLOCK_ID,
+        })
+
+    def _advance_falling_sand(self, dt, now):
+        landed = []
+        for fall_id, item in tuple(self.falling_sand.items()):
+            item['velocity'] = min(
+                SAND_TERMINAL_SPEED,
+                item['velocity'] + SAND_ACCELERATION * dt,
+            )
+            next_y = item['y'] - item['velocity'] * dt
+            landing_y = self._sand_landing_y(item['x'], item['z'], item['y'], next_y)
+            if landing_y is None:
+                item['y'] = next_y
+                continue
+            destination = (item['x'], landing_y, item['z'])
+            if destination in self.world.blocks:
+                # A newly placed block may occupy the first candidate position.
+                landing_y += 1
+                destination = (item['x'], landing_y, item['z'])
+            self.world.blocks[destination] = [SAND_BLOCK_ID, item['orientation']]
+            landed.append((fall_id, destination))
+            self.sand_column_ready[(item['x'], item['z'])] = now + SAND_COLUMN_INTERVAL
+
+        for fall_id, destination in landed:
+            self.falling_sand.pop(fall_id, None)
+            self._broadcast({
+                'type': 'sand_fall_land', 'fall_id': fall_id,
+                'x': destination[0], 'y': destination[1], 'z': destination[2],
+                'block_id': SAND_BLOCK_ID, 'orientation': 'y',
+            })
+
+    def _sand_landing_y(self, x, z, current_y, next_y):
+        start = int(current_y - 1e-6)
+        end = max(SAND_MIN_Y, int(next_y) - 1)
+        for support_y in range(start, end - 1, -1):
+            if (x, support_y, z) in self.world.blocks:
+                return support_y + 1
+        if next_y <= SAND_MIN_Y:
+            return SAND_MIN_Y
+        return None
 
     def _broadcast(self, message, exclude=None):
         with self.sessions_lock:

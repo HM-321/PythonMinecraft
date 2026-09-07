@@ -28,6 +28,7 @@ from menu import WorldSelectMenu
 from sound_manager import SoundManager
 from controller import Controller
 from block_particles import BlockParticles
+from sand_physics import SandPhysics
 from multiplayer_client import MultiplayerClient
 from player_model import RemotePlayer
 
@@ -117,6 +118,7 @@ game = {
     'paused': False,
     'pause_menu': None,
     'world': None,
+    'sand_physics': None,
     'player': None,
     'hotbar': None,
     'crosshair': None,      # ← 追加
@@ -153,6 +155,7 @@ def start_game(save_path, is_new, use_template=False):
     game['player'] = PlayerController((WORLD_SIZE / 2, 3, WORLD_SIZE / 2))
     camera.fov = settings.get('fov')
     game['world'] = World(save_path)
+    game['sand_physics'] = SandPhysics(game['world'], authoritative=True)
 
     if is_new:
         if use_template:
@@ -203,6 +206,7 @@ def _start_network_game(snapshot):
         camera.rotation_x = game['player'].pitch
     camera.fov = settings.get('fov')
     game['world'] = World(None)
+    game['sand_physics'] = SandPhysics(game['world'], authoritative=False)
     for block in snapshot.get('blocks', []):
         if len(block) >= 4:
             game['world'].place_block(*block[:3], block[3],
@@ -254,6 +258,21 @@ def _process_network_events():
             remote = game['remote_players'].pop(message.get('id'), None)
             if remote:
                 remote.destroy()
+        elif message_type == 'sand_fall_start':
+            physics = game.get('sand_physics')
+            if physics:
+                physics.start_remote(
+                    message.get('x'), message.get('y'), message.get('z'),
+                    message.get('fall_id'),
+                )
+        elif message_type == 'sand_fall_land':
+            physics = game.get('sand_physics')
+            if physics:
+                physics.land_remote(
+                    message.get('fall_id'),
+                    message.get('x'), message.get('y'), message.get('z'),
+                    message.get('block_id', 5),
+                )
         elif message_type == 'block_changed':
             _apply_network_block_change(message)
         elif message_type in ('error', 'disconnected'):
@@ -557,6 +576,8 @@ def _update_window_focus():
 def update():
     block_particles.update()
     _process_network_events()
+    if game.get('sand_physics'):
+        game['sand_physics'].update()
 
     if not game['started']:
         _limit_fps()
