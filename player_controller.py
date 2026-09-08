@@ -12,7 +12,7 @@ class PlayerController:
         camera.parent = self.entity
         camera.position = (0, 1.5, 0)
         camera.rotation = (0, 0, 0)
-        camera.fov = 90
+        camera.fov = settings.get('fov')
 
         self.yaw = 0
         self.pitch = 0

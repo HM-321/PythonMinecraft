@@ -233,6 +233,9 @@ class OptionsScreen:
         settings.save()
         if sound_mgr:
             sound_mgr.reload_volumes()
+        import __main__
+        if hasattr(__main__, '_apply_runtime_settings'):
+            __main__._apply_runtime_settings()
         self._back()
 
 

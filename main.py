@@ -150,6 +150,27 @@ game = {
 }
 
 
+def _apply_runtime_settings():
+    camera.fov = settings.get('fov')
+
+    player = game.get('player')
+    world = game.get('world')
+    if not player or not world:
+        return
+
+    # 保存直後に、プレイヤーが移動していなくても描画距離を更新する。
+    game['cull_timer'] = 0.0
+    game['last_cull_position'] = None
+    render_distance = settings.get('render_distance')
+    world.update_visibility(
+        player.entity.x,
+        player.entity.y,
+        player.entity.z,
+        max(12, render_distance),
+        render_distance,
+    )
+
+
 def start_game(save_path, is_new, use_template=False):
     sound_mgr.stop_bgm()
     props = WindowProperties()
