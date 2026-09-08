@@ -6,10 +6,7 @@ from pathlib import Path
 
 from ursina import *
 from ursina import application
-from panda3d.core import WindowProperties, loadPrcFileData
-
-# Ursinaがウィンドウを作成する前に垂直同期を無効化する。
-loadPrcFileData("", "sync-video false")
+from panda3d.core import WindowProperties
 
 from app_runtime import install_crash_logging
 from settings import settings
@@ -42,6 +39,16 @@ os.chdir(RESOURCE_DIR)
 application.asset_folder = Path(RESOURCE_DIR)
 write_resource_log()
 
+
+# vsyncとソフトウェアFPSリミッター(_limit_fps)を同時に有効にすると、
+# sleep()の精度不足でvsyncのタイミングを毎回わずかに外し、
+# 60fps→30fpsへ一段飛びで落ちる現象が起きる（アイドル時でも再現する）。
+# フレームレート制御は _limit_fps 側の max_fps に一本化する。
+#
+# 重要: window.vsync はウィンドウが開いた後（= Ursina()呼び出し後）に
+# Falseへ変更しても効かない（Ursina側で実行時無効化は未実装、警告が出るだけ）。
+# 必ず app = Ursina() より前、ウィンドウが開く前に設定する必要がある。
+window.vsync = False
 
 app = Ursina()
 application.asset_folder = Path(RESOURCE_DIR)
@@ -577,21 +584,81 @@ def _update_window_focus():
 
 
 
+# ===== 一時的なプロファイル計測 =====
+# MINECRAFTBUILD_PROFILE=1 の時だけ、重い処理の内訳をコンソールに出す。
+# 原因特定用。原因が分かったら削除してよい。
+_PROFILE = os.environ.get('MINECRAFTBUILD_PROFILE') == '1'
+_profile_last_print = 0.0
+print(f'[PROFILE-BUILD-CHECK] this main.py has profiling code. _PROFILE={_PROFILE}')
+
+
+def _profile_frame(sections):
+    """sections: [(label, elapsed_seconds), ...]。フレーム合計が閾値を超えたら出力する。"""
+    global _profile_last_print
+    if not _PROFILE:
+        return
+    total = sum(elapsed for _, elapsed in sections)
+    if total < 0.010:  # 10ms未満は無視
+        return
+    now = _pytime.time()
+    if now - _profile_last_print < 0.2:  # 出力自体が負荷にならないよう間引く
+        return
+    _profile_last_print = now
+    parts = ' / '.join(f'{label}={elapsed * 1000:.1f}ms' for label, elapsed in sections if elapsed > 0.0005)
+    print(f'[PROFILE] frame={total * 1000:.1f}ms  {parts}')
+
+
+# update()の呼び出し間隔＝本当のフレーム時間（Panda3Dの描画・vsync待ちも含む）を測る。
+_profile_prev_update_at = None
+
+
+def _profile_full_frame(python_total):
+    global _profile_prev_update_at
+    if not _PROFILE:
+        return
+    now = _pytime.perf_counter()
+    if _profile_prev_update_at is not None:
+        full_frame = now - _profile_prev_update_at
+        # python側の合計より明らかに長い＝差分はPanda3Dの描画/vsync待ちなど
+        # update()の外側で発生している。
+        if full_frame > 0.020:
+            gap = full_frame - python_total
+            print(
+                f'[PROFILE-FULL] full_frame={full_frame * 1000:.1f}ms '
+                f'python_total={python_total * 1000:.1f}ms '
+                f'gap(=render/vsync等)={gap * 1000:.1f}ms'
+            )
+    _profile_prev_update_at = now
+
+
 def update():
+    _frame_wall_t0 = _pytime.perf_counter()
+    _t0 = _pytime.perf_counter()
     block_particles.update()
+    _t_particles = _pytime.perf_counter() - _t0
+
+    _t0 = _pytime.perf_counter()
     _process_network_events()
+    _t_network = _pytime.perf_counter() - _t0
+
+    _t0 = _pytime.perf_counter()
     if game.get('sand_physics'):
         game['sand_physics'].update()
+    _t_sand = _pytime.perf_counter() - _t0
 
     if not game['started']:
+        _profile_full_frame(_t_particles + _t_network + _t_sand)
         _limit_fps()
         return
 
     _update_window_focus()
+    _t0 = _pytime.perf_counter()
     controller.update()
+    _t_controller = _pytime.perf_counter() - _t0
     game['esc_cd'] = max(0, game['esc_cd'] - time.dt)
 
     if game['paused']:
+        _profile_full_frame(_t_particles + _t_network + _t_sand + _t_controller)
         _limit_fps()
         return
 
@@ -599,6 +666,7 @@ def update():
     if game['first_frame']:
         app.win.movePointer(0, cx, cy)
         game['first_frame'] = False
+        _profile_full_frame(_t_particles + _t_network + _t_sand + _t_controller)
         _limit_fps()
         return
 
@@ -611,6 +679,7 @@ def update():
     player.update_view(dx, dy)
     app.win.movePointer(0, cx, cy)
 
+    _t_place_break = 0.0
     if controller.is_connected():
         if controller.button_pressed(settings.get('ctrl_jump')):
             player.try_toggle_gravity()
@@ -637,32 +706,45 @@ def update():
 
         if controller.button_pressed(settings.get('ctrl_pause')):
             _open_pause_menu()
+            _profile_full_frame(_t_particles + _t_network + _t_sand + _t_controller)
             _limit_fps()
             return
 
         if controller.zl_held():
             if game['click_cd'] <= 0:
                 game['click_cd'] = CLICK_INTERVAL
+                _t0 = _pytime.perf_counter()
                 _try_place_block()
+                _t_place_break = _pytime.perf_counter() - _t0
 
         if controller.zr_held():
             if game['click_cd'] <= 0:
                 game['click_cd'] = CLICK_INTERVAL
+                _t0 = _pytime.perf_counter()
                 _try_break_block()
+                _t_place_break = _pytime.perf_counter() - _t0
 
     if held_keys['left mouse'] and game['click_cd'] <= 0:
         game['click_cd'] = CLICK_INTERVAL
+        _t0 = _pytime.perf_counter()
         _try_break_block()
+        _t_place_break += _pytime.perf_counter() - _t0
     elif held_keys['right mouse'] and game['click_cd'] <= 0:
         game['click_cd'] = CLICK_INTERVAL
+        _t0 = _pytime.perf_counter()
         _try_place_block()
+        _t_place_break += _pytime.perf_counter() - _t0
 
     # ===== 通常のtick処理 =====
+    _t0 = _pytime.perf_counter()
     player.tick(time.dt)
+    _t_tick = _pytime.perf_counter() - _t0
     game['click_cd'] = max(0, game['click_cd'] - time.dt)
     game['scroll_cd'] = max(0, game['scroll_cd'] - time.dt)
 
+    _t0 = _pytime.perf_counter()
     player.update_movement()
+    _t_movement = _pytime.perf_counter() - _t0
 
     if game.get('network_client'):
         game['network_state_cd'] -= time.dt
@@ -685,6 +767,7 @@ def update():
 
     # ===== 選択枠 =====
     # 選択枠は30Hzで十分。毎フレームのraycastを削減する。
+    _t0 = _pytime.perf_counter()
     game['selection_timer'] -= time.dt
     if game['selection_timer'] <= 0:
         game['selection_timer'] = 1 / 30
@@ -698,13 +781,20 @@ def update():
             game['selection'].show_at(hit.entity)
         else:
             game['selection'].hide()
+    _t_selection = _pytime.perf_counter() - _t0
 
     # LOD更新を1フレーム1チャンクへ分散する。
-    game['world'].rebuild_dirty_lod(max_chunks=1)
+    # 今いるチャンクはLODを使わないので、建築中の強制再構築による
+    # fps谷落ちを避けるため再構築対象から除外する。
+    _t0 = _pytime.perf_counter()
+    player_chunk_key = game['world'].chunk_key_at(player.entity.x, player.entity.z)
+    game['world'].rebuild_dirty_lod(max_chunks=1, active_chunk_keys={player_chunk_key})
+    _t_lod = _pytime.perf_counter() - _t0
 
     # ===== 距離カリング =====
     # 全ブロック走査を5フレームごとではなく最大4回/秒に抑える。
     # 高所・低所ではY距離も含め、遠い地面を描画対象から外す。
+    _t0 = _pytime.perf_counter()
     game['cull_timer'] -= time.dt
     current_position = (player.entity.x, player.entity.y, player.entity.z)
     last_position = game.get('last_cull_position')
@@ -727,7 +817,9 @@ def update():
             vertical_distance,
             render_distance,
         )
+    _t_cull = _pytime.perf_counter() - _t0
 
+    _t0 = _pytime.perf_counter()
     game['hotbar'].maybe_hide()
     game['debug'].update(
         time.dt,
@@ -736,6 +828,23 @@ def update():
         game['world'],
         game['player'].gravity_on,
     )
+    _t_debug = _pytime.perf_counter() - _t0
+
+    _python_sections = [
+        ('particles', _t_particles),
+        ('network', _t_network),
+        ('sand_physics', _t_sand),
+        ('controller', _t_controller),
+        ('place/break_block', _t_place_break),
+        ('player.tick', _t_tick),
+        ('player.update_movement', _t_movement),
+        ('selection', _t_selection),
+        ('lod_rebuild', _t_lod),
+        ('cull(update_visibility)', _t_cull),
+        ('debug_overlay', _t_debug),
+    ]
+    _profile_frame(_python_sections)
+    _profile_full_frame(sum(elapsed for _, elapsed in _python_sections))
 
     _limit_fps()
     
