@@ -2,6 +2,7 @@ import json
 import os
 from collections import defaultdict
 from datetime import datetime
+from time import monotonic
 
 from panda3d.core import TransparencyAttrib, Texture
 from ursina import Entity, Mesh, Vec3, color, destroy, scene
@@ -13,6 +14,14 @@ from custom_mesh import make_face_atlas_cube
 
 LOD_CHUNK_SIZE = 10
 SAND_BLOCK_ID = 5
+
+# ジャンプ設置などで同じチャンクへ連続して変更が入っている間は
+# LOD再構築（全ブロック走査＋Mesh再生成という重い処理）を遅らせる。
+# 自分がいる/建築中のチャンクは常に保護チャンクとして通常描画され
+# LODは使われないため、この遅延は見た目に影響しない。
+LOD_REBUILD_DEBOUNCE = 0.3
+# 連続変更が長く続いた場合でも、最終的には反映されるようにする上限。
+LOD_REBUILD_MAX_WAIT = 1.5
 
 
 class World:
@@ -27,6 +36,11 @@ class World:
         # 遠距離表示用。チャンクごと、ブロック種類ごとに上面を結合する。
         self.lod_entities = {}
         self.dirty_lod_chunks = set()
+        # チャンクごとの dirty 化タイムスタンプ（連続変更のデバウンス用）
+        self._lod_dirty_first_at = {}
+        self._lod_dirty_last_at = {}
+        # 直前フレームで再構築をスキップしていたチャンク（＝滞在中チャンク）
+        self._previous_active_chunk_keys = set()
         self.lod_enabled = False
         self._high_altitude_lod = False
         self.visible_lod_chunks = set()
@@ -38,6 +52,10 @@ class World:
     @staticmethod
     def _chunk_key(x, z):
         return int(x) // LOD_CHUNK_SIZE, int(z) // LOD_CHUNK_SIZE
+
+    def chunk_key_at(self, x, z):
+        """呼び出し側（main.py）がプレイヤー位置からチャンクキーを求めるための公開API。"""
+        return self._chunk_key(x, z)
 
     def get_block(self, x, y, z):
         return self.blocks_by_position.get(self._position_key(x, y, z))
@@ -92,7 +110,7 @@ class World:
         if block_id == SAND_BLOCK_ID:
             self.sand_positions.add(position)
         self.blocks_by_chunk[chunk_key].add(position)
-        self.dirty_lod_chunks.add(chunk_key)
+        self._mark_lod_dirty(chunk_key)
         return block
 
     def remove_block(self, block):
@@ -118,8 +136,15 @@ class World:
             chunk_positions.discard(position)
             if not chunk_positions:
                 self.blocks_by_chunk.pop(chunk_key, None)
-        self.dirty_lod_chunks.add(chunk_key)
+        self._mark_lod_dirty(chunk_key)
         return True
+
+    def _mark_lod_dirty(self, chunk_key):
+        now = monotonic()
+        self.dirty_lod_chunks.add(chunk_key)
+        if chunk_key not in self._lod_dirty_first_at:
+            self._lod_dirty_first_at[chunk_key] = now
+        self._lod_dirty_last_at[chunk_key] = now
 
     def clear(self):
         for block in self.boxes:
@@ -136,6 +161,9 @@ class World:
                 destroy(entity)
         self.lod_entities.clear()
         self.dirty_lod_chunks.clear()
+        self._lod_dirty_first_at.clear()
+        self._lod_dirty_last_at.clear()
+        self._previous_active_chunk_keys.clear()
         self.lod_enabled = False
         self._high_altitude_lod = False
         self.visible_lod_chunks.clear()
@@ -174,12 +202,54 @@ class World:
             uv_range = (1 / 3, 2 / 3)
         return texture_path, uv_range, block_color
 
-    def rebuild_dirty_lod(self, max_chunks=1):
+    def rebuild_dirty_lod(self, max_chunks=1, active_chunk_keys=None):
         # LOD再生成を複数フレームへ分散して、一括停止を避ける。
-        for _ in range(max_chunks):
-            if not self.dirty_lod_chunks:
-                return
-            self._rebuild_lod_chunk(self.dirty_lod_chunks.pop())
+        # さらに、連続してブロックを設置/破壊しているチャンクは
+        # 変更が落ち着くまで再構築を遅らせる（デバウンス）。
+        # 再構築中のチャンクは自分の足元＝保護チャンクであることが多く、
+        # その間はLODが使われないため、遅らせても見た目には影響しない。
+        #
+        # active_chunk_keys（プレイヤーが今いるチャンクなど）に含まれる
+        # チャンクは、そこに留まっている間は LOD_REBUILD_MAX_WAIT による
+        # 強制再構築も含めて完全にスキップする。建築中に定期的な重い
+        # 再構築スパイクが挟まってfpsが谷落ちするのを防ぐため。
+        active_chunk_keys = set(active_chunk_keys or ())
+
+        # チャンクを離れた瞬間、溜まっていた変更が即座に（同じフレームで）
+        # 重い再構築として発火すると、それが移動時のラグとして感じられる。
+        # 離脱を検知したら「今dirtyになった」ものとしてタイマーをリセットし、
+        # 通常のデバウンス（LOD_REBUILD_DEBOUNCE秒）を必ず経由させる。
+        now = monotonic()
+        left_chunks = self._previous_active_chunk_keys - active_chunk_keys
+        for chunk_key in left_chunks:
+            if chunk_key in self.dirty_lod_chunks:
+                self._lod_dirty_first_at[chunk_key] = now
+                self._lod_dirty_last_at[chunk_key] = now
+        self._previous_active_chunk_keys = active_chunk_keys
+
+        if not self.dirty_lod_chunks:
+            return
+
+        rebuilt = 0
+
+        for chunk_key in tuple(self.dirty_lod_chunks):
+            if rebuilt >= max_chunks:
+                break
+            if chunk_key in active_chunk_keys:
+                continue
+
+            last_at = self._lod_dirty_last_at.get(chunk_key, now)
+            first_at = self._lod_dirty_first_at.get(chunk_key, now)
+            settled = (now - last_at) >= LOD_REBUILD_DEBOUNCE
+            timed_out = (now - first_at) >= LOD_REBUILD_MAX_WAIT
+            if not settled and not timed_out:
+                continue
+
+            self.dirty_lod_chunks.discard(chunk_key)
+            self._lod_dirty_first_at.pop(chunk_key, None)
+            self._lod_dirty_last_at.pop(chunk_key, None)
+            self._rebuild_lod_chunk(chunk_key)
+            rebuilt += 1
 
     def _rebuild_lod_chunk(self, chunk_key):
         old_entities = self.lod_entities.pop(chunk_key, [])
