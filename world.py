@@ -495,3 +495,4 @@ class World:
 
         player_entity.position = tuple(data['player'])
         print(f'loaded: {self.save_path}, boxes count={len(self.boxes)}')
+        
