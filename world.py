@@ -28,6 +28,8 @@ class World:
         self.lod_entities = {}
         self.dirty_lod_chunks = set()
         self.lod_enabled = False
+        self._high_altitude_lod = False
+        self.visible_lod_chunks = set()
 
     @staticmethod
     def _position_key(x, y, z):
@@ -135,6 +137,8 @@ class World:
         self.lod_entities.clear()
         self.dirty_lod_chunks.clear()
         self.lod_enabled = False
+        self._high_altitude_lod = False
+        self.visible_lod_chunks.clear()
 
     def dispose(self):
         self.clear()
@@ -278,15 +282,40 @@ class World:
     def update_visibility(self, player_x, player_y, player_z,
                           vertical_distance, render_distance):
         self.rebuild_dirty_lod()
-
         chunk_radius = LOD_CHUNK_SIZE * 0.75
         near_distance = max(8.0, render_distance * 0.6)
         lod_distance = render_distance + chunk_radius
         near_distance2 = near_distance * near_distance
         lod_distance2 = lod_distance * lod_distance
+        # 境界付近で通常描画とLODが往復しないようヒステリシスを持たせる。
+        # Render Distance 20の場合、上昇時はY=22、下降時はY=16で切り替わる。
+        height = abs(player_y)
+        enable_height = vertical_distance + 2
+        disable_height = max(6, vertical_distance - 4)
+        if self._high_altitude_lod:
+            if height <= disable_height:
+                self._high_altitude_lod = False
+        elif height >= enable_height:
+            self._high_altitude_lod = True
+        high_altitude = self._high_altitude_lod
 
-        # チャンク単位で通常描画とLODを排他的に切り替える。
-        # 同じ面の重複表示を避けるため、同一チャンクで両方は表示しない。
+        # 足元を中心とした半径2ブロックが触れるチャンクだけ保護する。
+        # 通常は1チャンク、境界付近でも最大4チャンクに制限される。
+        protection_radius = 2
+        min_chunk_x, min_chunk_z = self._chunk_key(
+            player_x - protection_radius,
+            player_z - protection_radius,
+        )
+        max_chunk_x, max_chunk_z = self._chunk_key(
+            player_x + protection_radius,
+            player_z + protection_radius,
+        )
+        protected_chunks = {
+            (chunk_x, chunk_z)
+            for chunk_x in range(min_chunk_x, max_chunk_x + 1)
+            for chunk_z in range(min_chunk_z, max_chunk_z + 1)
+        }
+
         near_chunks = set()
         lod_chunks = set()
         all_chunks = set(self.lod_entities)
@@ -301,44 +330,47 @@ class World:
                 + (center_z - player_z) ** 2
             )
 
-            if distance2 <= near_distance2:
+            if chunk_key in protected_chunks:
+                # 足元と建築中のチャンクは通常Entityだけを使う。
                 near_chunks.add(chunk_key)
-                # 高所では中央の地面もLODで描画する。
-                # 通常EntityはCollider用に残し、描画だけ後段で止める。
-                if abs(player_y) >= vertical_distance - 2:
-                    if chunk_key in self.lod_entities:
-                        lod_chunks.add(chunk_key)
-
+            elif distance2 <= near_distance2:
+                near_chunks.add(chunk_key)
+                if high_altitude and chunk_key in self.lod_entities:
+                    lod_chunks.add(chunk_key)
             elif distance2 <= lod_distance2:
                 if chunk_key in self.lod_entities:
                     lod_chunks.add(chunk_key)
                 else:
-                    # LOD生成待ち中は通常表示を残し、四角い欠けを防ぐ。
+                    # LOD生成待ちは通常Entityで穴を防ぐ。
                     near_chunks.add(chunk_key)
-
-        high_altitude = abs(player_y) >= vertical_distance - 2
-        entity_vertical_distance = 6 if high_altitude else vertical_distance
 
         for block in self.boxes:
             x, y, z = block.block_position
             chunk_key = self._chunk_key(x, z)
-
-            # 高所の近距離ブロックはColliderだけ維持する。
-            # 不透明面はLOD側に任せて二重描画を防ぎ、Glassは通常描画する。
-            block.enabled = (
-                chunk_key in near_chunks
-                and abs(y - player_y) < entity_vertical_distance
-            )
-            block.visible = (
-                block.enabled
+            if chunk_key in protected_chunks:
+                should_enable = True
+            else:
+                entity_vertical_distance = 6 if high_altitude else vertical_distance
+                should_enable = (
+                    chunk_key in near_chunks
+                    and abs(y - player_y) < entity_vertical_distance
+                )
+            should_be_visible = (
+                should_enable
                 and (chunk_key not in lod_chunks or self._is_transparent(block))
             )
+            if block.enabled != should_enable:
+                block.enabled = should_enable
+            if block.visible != should_be_visible:
+                block.visible = should_be_visible
 
         for chunk_key, entities in self.lod_entities.items():
-            enabled = chunk_key in lod_chunks
+            should_enable = chunk_key in lod_chunks
             for entity in entities:
-                entity.enabled = enabled
+                if entity.enabled != should_enable:
+                    entity.enabled = should_enable
 
+        self.visible_lod_chunks = set(lod_chunks)
         self.lod_enabled = bool(lod_chunks)
 
     def get_chunk_positions(self, chunk_x, chunk_z):
