@@ -6,7 +6,10 @@ from pathlib import Path
 
 from ursina import *
 from ursina import application
-from panda3d.core import WindowProperties
+from panda3d.core import WindowProperties, loadPrcFileData
+
+# Ursinaがウィンドウを作成する前に垂直同期を無効化する。
+loadPrcFileData("", "sync-video false")
 
 from app_runtime import install_crash_logging
 from settings import settings
