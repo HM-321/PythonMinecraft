@@ -31,6 +31,7 @@ from block_particles import BlockParticles
 from sand_physics import SandPhysics
 from multiplayer_client import MultiplayerClient
 from player_model import RemotePlayer
+from voxel_raycast import cast as voxel_cast
 
 
 install_crash_logging()
@@ -445,28 +446,14 @@ def _reload_app():
 def _try_place_block():
     player = game['player']
     hotbar = game['hotbar']
-    hit = raycast(camera.world_position, camera.forward,
-                  distance=REACH, ignore=[player.entity])
-    if not hit.hit or hit.entity not in game['world'].boxes:
+    hit = voxel_cast(
+        game['world'], camera.world_position, camera.forward, REACH
+    )
+    if hit is None or hit.normal.length() == 0:
         return
 
-    target = hit.entity
-    hit_point = hit.world_point
-    target_pos = target.position
-    if getattr(target, 'custom_mesh', False):
-        target_pos = Vec3(target_pos.x, target_pos.y + 0.5, target_pos.z)
-    center_pos = Vec3(target_pos.x, target_pos.y - 0.5, target_pos.z)
-
-    diff = hit_point - center_pos
-    ax, ay, az = abs(diff.x), abs(diff.y), abs(diff.z)
-
-    if ax >= ay and ax >= az:
-        normal = Vec3(1 if diff.x > 0 else -1, 0, 0)
-    elif ay >= ax and ay >= az:
-        normal = Vec3(0, 1 if diff.y > 0 else -1, 0)
-    else:
-        normal = Vec3(0, 0, 1 if diff.z > 0 else -1)
-
+    target_pos = Vec3(*hit.position)
+    normal = hit.normal
     new_pos = target_pos + normal
 
     if player.block_overlaps(new_pos):
@@ -476,7 +463,6 @@ def _try_place_block():
 
     _, _, tex_info = BLOCK_TYPES[hotbar.selected]
     is_rotatable = isinstance(tex_info, dict) and tex_info.get('rotatable', False)
-
     if is_rotatable:
         if abs(normal.y) > 0.5:
             orientation = 'y'
@@ -489,34 +475,37 @@ def _try_place_block():
 
     if game.get('network_client'):
         game['network_client'].request_place(
-            new_pos.x, new_pos.y, new_pos.z, hotbar.selected, orientation,
+            new_pos.x, new_pos.y, new_pos.z,
+            hotbar.selected, orientation,
             player_state={
                 'x': player.entity.x,
                 'y': player.entity.y,
                 'z': player.entity.z,
-            })
+            },
+        )
         return
 
-    game['world'].place_block(new_pos.x, new_pos.y, new_pos.z,
-                              hotbar.selected, orientation=orientation)
+    game['world'].place_block(
+        new_pos.x, new_pos.y, new_pos.z,
+        hotbar.selected, orientation=orientation,
+    )
     sound_mgr.play_place()
 
 
 def _try_break_block():
-    player = game['player']
-    hit = raycast(camera.world_position, camera.forward,
-                  distance=REACH, ignore=[player.entity])
-    if hit.hit and hit.entity in game['world'].boxes:
-        if game.get('network_client'):
-            target_position = getattr(
-                hit.entity, 'block_position',
-                (round(hit.entity.x), round(hit.entity.y), round(hit.entity.z)))
-            game['network_client'].request_break(
-                *target_position)
-            return
-        block_particles.burst(hit.entity)
-        game['world'].remove_block(hit.entity)
-        sound_mgr.play_break()
+    hit = voxel_cast(
+        game['world'], camera.world_position, camera.forward, REACH
+    )
+    if hit is None:
+        return
+
+    if game.get('network_client'):
+        game['network_client'].request_break(*hit.position)
+        return
+
+    block_particles.burst(hit.block)
+    game['world'].remove_block(hit.block)
+    sound_mgr.play_break()
 
 
 def _take_screenshot():
@@ -792,14 +781,11 @@ def update():
     game['selection_timer'] -= time.dt
     if game['selection_timer'] <= 0:
         game['selection_timer'] = 1 / 30
-        hit = raycast(
-            camera.world_position,
-            camera.forward,
-            distance=REACH,
-            ignore=[player.entity],
+        hit = voxel_cast(
+            game['world'], camera.world_position, camera.forward, REACH
         )
-        if hit.hit and hit.entity in game['world'].boxes:
-            game['selection'].show_at(hit.entity)
+        if hit is not None:
+            game['selection'].show_at(hit.block)
         else:
             game['selection'].hide()
     _t_selection = _pytime.perf_counter() - _t0
