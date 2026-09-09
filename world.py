@@ -23,6 +23,15 @@ LOD_REBUILD_DEBOUNCE = 0.3
 # 連続変更が長く続いた場合でも、最終的には反映されるようにする上限。
 LOD_REBUILD_MAX_WAIT = 5.0
 
+# 高所LOD（遠景の地面を個別Entityではなく結合メッシュに切り替える）が
+# 発動する高度差。以前はrender_distanceに連動していて発動が遅く、
+# 切り替わる前に個別ブロックが大量に見えてFPSが落ちていたため、
+# render_distanceに関わらず固定値にしている。値を下げるほど早く
+# LODに切り替わり、上空でのFPSは安定するが、切り替わりの境界が
+# プレイヤーに近くなるため見た目の粗さが分かりやすくなる。
+HIGH_ALTITUDE_ENABLE_HEIGHT = 14
+HIGH_ALTITUDE_DISABLE_HEIGHT = 9
+
 
 class World:
     def __init__(self, save_path):
@@ -349,19 +358,46 @@ class World:
 
         self.lod_entities[chunk_key] = new_entities
 
+    PROTECTION_RADIUS = 2
+
+    def protected_chunk_keys(self, player_x, player_z):
+        """足元を中心とした半径PROTECTION_RADIUSブロックが触れるチャンク集合。
+        通常は1チャンク、境界付近でも最大4チャンクに制限される。
+        update_visibility()（表示判定）とrebuild_dirty_lod()の
+        active_chunk_keys（再構築の一時停止対象）の両方で、
+        必ず同じ集合を使うこと。ズレると「保護されているのに
+        再構築（重いフルスキャン+Mesh再生成）は止まらない」チャンクが
+        生まれ、境界付近で建築するとラグの原因になる。
+        """
+        radius = self.PROTECTION_RADIUS
+        min_chunk_x, min_chunk_z = self._chunk_key(
+            player_x - radius, player_z - radius,
+        )
+        max_chunk_x, max_chunk_z = self._chunk_key(
+            player_x + radius, player_z + radius,
+        )
+        return {
+            (chunk_x, chunk_z)
+            for chunk_x in range(min_chunk_x, max_chunk_x + 1)
+            for chunk_z in range(min_chunk_z, max_chunk_z + 1)
+        }
+
     def update_visibility(self, player_x, player_y, player_z,
                           vertical_distance, render_distance):
-        self.rebuild_dirty_lod()
+        self.rebuild_dirty_lod(
+            active_chunk_keys=self.protected_chunk_keys(player_x, player_z),
+        )
         chunk_radius = LOD_CHUNK_SIZE * 0.75
         near_distance = max(8.0, render_distance * 0.6)
         lod_distance = render_distance + chunk_radius
         near_distance2 = near_distance * near_distance
         lod_distance2 = lod_distance * lod_distance
         # 境界付近で通常描画とLODが往復しないようヒステリシスを持たせる。
-        # Render Distance 20の場合、上昇時はY=22、下降時はY=16で切り替わる。
+        # render_distanceに関わらず固定高度で切り替える
+        # （HIGH_ALTITUDE_ENABLE_HEIGHT / HIGH_ALTITUDE_DISABLE_HEIGHT）。
         height = abs(player_y)
-        enable_height = vertical_distance + 2
-        disable_height = max(6, vertical_distance - 4)
+        enable_height = HIGH_ALTITUDE_ENABLE_HEIGHT
+        disable_height = HIGH_ALTITUDE_DISABLE_HEIGHT
         if self._high_altitude_lod:
             if height <= disable_height:
                 self._high_altitude_lod = False
@@ -369,22 +405,7 @@ class World:
             self._high_altitude_lod = True
         high_altitude = self._high_altitude_lod
 
-        # 足元を中心とした半径2ブロックが触れるチャンクだけ保護する。
-        # 通常は1チャンク、境界付近でも最大4チャンクに制限される。
-        protection_radius = 2
-        min_chunk_x, min_chunk_z = self._chunk_key(
-            player_x - protection_radius,
-            player_z - protection_radius,
-        )
-        max_chunk_x, max_chunk_z = self._chunk_key(
-            player_x + protection_radius,
-            player_z + protection_radius,
-        )
-        protected_chunks = {
-            (chunk_x, chunk_z)
-            for chunk_x in range(min_chunk_x, max_chunk_x + 1)
-            for chunk_z in range(min_chunk_z, max_chunk_z + 1)
-        }
+        protected_chunks = self.protected_chunk_keys(player_x, player_z)
 
         near_chunks = set()
         lod_chunks = set()
@@ -419,12 +440,20 @@ class World:
             chunk_key = self._chunk_key(x, z)
             if chunk_key in protected_chunks:
                 should_enable = True
+            elif chunk_key in near_chunks:
+                # 高所（high_altitude）では高さで個別Entityを間引くが、
+                # それはそのチャンクをLODメッシュが実際に肩代わりできる
+                # 場合に限る。LODがまだ生成されていないチャンクで間引くと
+                # 何も描画されない「穴」になってしまうため、その場合は
+                # 高さに関わらず必ず表示してフォールバックする。
+                covered_by_lod = chunk_key in lod_chunks
+                if covered_by_lod:
+                    entity_vertical_distance = 6 if high_altitude else vertical_distance
+                    should_enable = abs(y - player_y) < entity_vertical_distance
+                else:
+                    should_enable = True
             else:
-                entity_vertical_distance = 6 if high_altitude else vertical_distance
-                should_enable = (
-                    chunk_key in near_chunks
-                    and abs(y - player_y) < entity_vertical_distance
-                )
+                should_enable = False
             should_be_visible = (
                 should_enable
                 and (chunk_key not in lod_chunks or self._is_transparent(block))
@@ -455,6 +484,24 @@ class World:
 
     def loaded_chunk_keys(self):
         return tuple(self.blocks_by_chunk.keys())
+
+    def debug_stats(self, player_x=None, player_z=None):
+        """デバッグオーバーレイ表示用のチャンク/LOD統計。"""
+        visible_blocks = sum(1 for block in self.boxes if block.visible)
+        stats = {
+            'chunks_loaded': len(self.blocks_by_chunk),
+            'lod_built': len(self.lod_entities),
+            'lod_dirty': len(self.dirty_lod_chunks),
+            'lod_visible': len(self.visible_lod_chunks),
+            'high_altitude': self._high_altitude_lod,
+            'visible_blocks': visible_blocks,
+            'protected_chunks': None,
+        }
+        if player_x is not None and player_z is not None:
+            stats['protected_chunks'] = len(
+                self.protected_chunk_keys(player_x, player_z)
+            )
+        return stats
 
     def save(self, player_entity):
         data = {
@@ -495,4 +542,3 @@ class World:
 
         player_entity.position = tuple(data['player'])
         print(f'loaded: {self.save_path}, boxes count={len(self.boxes)}')
-        

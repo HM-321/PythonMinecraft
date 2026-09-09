@@ -808,8 +808,10 @@ def update():
     # 今いるチャンクはLODを使わないので、建築中の強制再構築による
     # fps谷落ちを避けるため再構築対象から除外する。
     _t0 = _pytime.perf_counter()
-    player_chunk_key = game['world'].chunk_key_at(player.entity.x, player.entity.z)
-    game['world'].rebuild_dirty_lod(max_chunks=1, active_chunk_keys={player_chunk_key})
+    protected_chunk_keys = game['world'].protected_chunk_keys(
+        player.entity.x, player.entity.z,
+    )
+    game['world'].rebuild_dirty_lod(max_chunks=1, active_chunk_keys=protected_chunk_keys)
     _t_lod = _pytime.perf_counter() - _t0
 
     # ===== 距離カリング =====

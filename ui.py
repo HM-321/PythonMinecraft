@@ -194,17 +194,28 @@ class DebugOverlay:
             else 'Multiplayer'
         )
 
+        chunk_x, chunk_z = world.chunk_key_at(p.x, p.z)
+        stats = world.debug_stats(p.x, p.z)
+        high_alt = 'ON' if stats['high_altitude'] else 'off'
+        boundary = 'near boundary!' if stats['protected_chunks'] > 1 else 'ok'
+
         self.text.text = (
             f'World: {world_name}\n'
             f'FPS: {self._fps:.0f}\n'
             f'Memory: {self._mem_mb:.0f} MB\n'
             f'XYZ: {p.x:.2f} / {p.y:.2f} / {p.z:.2f}\n'
             f'Block: {int(p.x)} {int(p.y)} {int(p.z)}\n'
+            f'Chunk: {chunk_x} {chunk_z}\n'
             f'Facing: {facing}\n'
             f'Yaw/Pitch: {yaw:.1f} / {pitch:.1f}\n'
             f'Mode: {mode}\n'
             f'Selected: {block_name}\n'
-            f'Blocks: {len(world.boxes)}'
+            f'Blocks: {len(world.boxes)} (visible {stats["visible_blocks"]})\n'
+            f'Chunks loaded: {stats["chunks_loaded"]}\n'
+            f'LOD built/dirty/visible: {stats["lod_built"]}/'
+            f'{stats["lod_dirty"]}/{stats["lod_visible"]}\n'
+            f'HighAltLOD: {high_alt}\n'
+            f'ChunkBoundary: {boundary} (protected {stats["protected_chunks"]})'
         )
     
     @staticmethod
