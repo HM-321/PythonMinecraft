@@ -21,7 +21,7 @@ SAND_BLOCK_ID = 5
 # LODは使われないため、この遅延は見た目に影響しない。
 LOD_REBUILD_DEBOUNCE = 0.3
 # 連続変更が長く続いた場合でも、最終的には反映されるようにする上限。
-LOD_REBUILD_MAX_WAIT = 1.5
+LOD_REBUILD_MAX_WAIT = 5.0
 
 
 class World:
