@@ -456,9 +456,9 @@ def _try_place_block():
     normal = hit.normal
     new_pos = target_pos + normal
 
+    # プレイヤー本体と重なる設置だけ拒否する。
+    # 方角依存の床座標丸めを使わない。
     if player.block_overlaps(new_pos):
-        return
-    if player.is_above_standing_block(new_pos):
         return
 
     _, _, tex_info = BLOCK_TYPES[hotbar.selected]

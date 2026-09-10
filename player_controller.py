@@ -1,5 +1,8 @@
 from ursina import Entity, Vec3, camera, raycast, held_keys, time
 from settings import settings
+from voxel_collision import (
+    _world, overlaps_player, supporting_top, sweep_vertical,
+)
 from config import (PLAYER_HEIGHT, PLAYER_RADIUS,
                     MOVE_SPEED, SNEAK_MUL, SPRINT_MUL, FRICTION,
                     GRAVITY, JUMP_POWER, SENSITIVITY, DOUBLE_TAP,
@@ -36,73 +39,47 @@ class PlayerController:
 
     def is_above_standing_block(self, pos):
         p = self.entity
-        gc = raycast(p.world_position + Vec3(0, 0.05, 0),
-                     Vec3(0, -1, 0), distance=0.15, ignore=[p])
-        if not gc.hit:
+        world = _world()
+        ground_y = supporting_top(
+            world, p.x, p.y, p.z, PLAYER_RADIUS - 0.02, max_drop=0.18
+        )
+        if ground_y is None:
             return False
-        uh = raycast(p.world_position + Vec3(0, 0.1, 0),
-                     Vec3(0, -1, 0), distance=2, ignore=[p])
-        if not uh.hit:
-            return False
-        sb = uh.entity
-        return (abs(pos.x - sb.x) < 0.1 and
-                abs(pos.z - sb.z) < 0.1 and
-                abs(pos.y - (sb.y + 1)) < 0.1)
+        return (
+            abs(pos.x - round(p.x)) < 0.6
+            and abs(pos.z - round(p.z)) < 0.6
+            and abs(pos.y - (ground_y + 1)) < 0.1
+        )
 
     def try_move_axis(self, axis, delta, sneak=False):
         if delta == 0:
             return True
         p = self.entity
+        world = _world()
+        next_x = p.x + (delta if axis == 'x' else 0)
+        next_z = p.z + (delta if axis == 'z' else 0)
 
-        if axis == 'x':
-            direction = Vec3(1 if delta > 0 else -1, 0, 0)
-            perp = [Vec3(0, 0, -PLAYER_RADIUS + 0.01), Vec3(0, 0, 0),
-                    Vec3(0, 0, PLAYER_RADIUS - 0.01)]
-        else:
-            direction = Vec3(0, 0, 1 if delta > 0 else -1)
-            perp = [Vec3(-PLAYER_RADIUS + 0.01, 0, 0), Vec3(0, 0, 0),
-                    Vec3(PLAYER_RADIUS - 0.01, 0, 0)]
-
-        # 立方体ブロックとの横衝突は足元と頭側の2段で十分。
-        # 3段 x 横3点から、2段 x 横3点へ削減する。
-        heights = [0.1, PLAYER_HEIGHT - 0.1]
-        dist = PLAYER_RADIUS + abs(delta)
-
-        for h in heights:
-            for off in perp:
-                origin = p.world_position + Vec3(0, h, 0) + off
-                hit = raycast(origin, direction, distance=dist, ignore=[p])
-                if hit.hit:
-                    return False
+        if overlaps_player(
+            world, next_x, p.y, next_z, PLAYER_RADIUS, PLAYER_HEIGHT
+        ):
+            return False
 
         if sneak and self.gravity_on:
-            r = PLAYER_RADIUS - 0.02
-            offsets = [(0, 0), (r, 0), (-r, 0), (0, r), (0, -r),
-                       (r, r), (-r, r), (r, -r), (-r, -r)]
-
-            on_ground = False
-            for ox, oz in offsets:
-                if raycast(p.world_position + Vec3(ox, 0.1, oz),
-                           Vec3(0, -1, 0), distance=0.3, ignore=[p]).hit:
-                    on_ground = True
-                    break
-
-            if on_ground:
-                new_x = p.x + (delta if axis == 'x' else 0)
-                new_z = p.z + (delta if axis == 'z' else 0)
-                can_stand = False
-                for ox, oz in offsets:
-                    if raycast(Vec3(new_x + ox, p.y + 0.1, new_z + oz),
-                               Vec3(0, -1, 0), distance=0.3, ignore=[p]).hit:
-                        can_stand = True
-                        break
-                if not can_stand:
-                    return False
+            on_ground = supporting_top(
+                world, p.x, p.y, p.z,
+                PLAYER_RADIUS - 0.02, max_drop=0.18,
+            ) is not None
+            can_stand = supporting_top(
+                world, next_x, p.y, next_z,
+                PLAYER_RADIUS - 0.02, max_drop=0.22,
+            ) is not None
+            if on_ground and not can_stand:
+                return False
 
         if axis == 'x':
-            p.x += delta
+            p.x = next_x
         else:
-            p.z += delta
+            p.z = next_z
         return True
 
 
@@ -197,65 +174,43 @@ class PlayerController:
             if __main__.controller.button_held(settings.get('ctrl_jump')):
                 jump_input = True
 
+        world = _world()
+        dt = min(time.dt, 0.05)
 
         if self.gravity_on:
-            r = PLAYER_RADIUS - 0.02
-            # 中心と四隅だけを調べる。毎フレーム9本、距離100だった判定を
-            # 5本の短いrayへ変更し、足元のブロックだけを対象にする。
-            pts = [(0, 0), (r, r), (-r, r), (r, -r), (-r, -r)]
-            ground_y = -9999
-            fall_distance = max(0.0, -self.velocity_y * time.dt)
-            ground_check_distance = max(0.3, fall_distance + 0.15)
-            for ox, oz in pts:
-                hit = raycast(
-                    p.world_position + Vec3(ox, 0.1, oz),
-                    Vec3(0, -1, 0),
-                    distance=ground_check_distance,
-                    ignore=[p],
-                )
-                if hit.hit and hit.world_point.y > ground_y:
-                    ground_y = hit.world_point.y
-
-            self.velocity_y -= GRAVITY * time.dt
-
-            # 頭上判定
-            if self.velocity_y > 0:
-                r = PLAYER_RADIUS - 0.02
-                corners = [(0, 0), (r, r), (-r, r), (r, -r), (-r, -r)]
-                check_dist = self.velocity_y * time.dt + 0.05
-                for ox, oz in corners:
-                    origin = p.world_position + Vec3(ox, PLAYER_HEIGHT, oz)
-                    hu = raycast(origin, Vec3(0, 1, 0), distance=check_dist, ignore=[p])
-                    if hu.hit:
-                        p.y = hu.world_point.y - PLAYER_HEIGHT - 0.01
-                        self.velocity_y = 0
-                        break
-
-            p.y += self.velocity_y * time.dt
-
-            if p.y <= ground_y:
-                p.y = ground_y
+            grounded = supporting_top(
+                world, p.x, p.y, p.z,
+                PLAYER_RADIUS - 0.02, max_drop=0.18,
+            )
+            if grounded is not None and self.velocity_y <= 0:
+                p.y = grounded
                 self.velocity_y = 0
                 if jump_input:
                     self.velocity_y = JUMP_POWER
+
+            self.velocity_y -= GRAVITY * dt
+            next_y, collided = sweep_vertical(
+                world, p.x, p.y, p.z,
+                PLAYER_RADIUS - 0.02, PLAYER_HEIGHT,
+                self.velocity_y * dt,
+            )
+            p.y = next_y
+            if collided:
+                self.velocity_y = 0
         else:
-            dy = time.dt * MOVE_SPEED
-            r = PLAYER_RADIUS - 0.02
-            corners = [(r, r), (-r, r), (r, -r), (-r, -r)]
-            
+            dy = dt * MOVE_SPEED
             if jump_input:
-                if not any(raycast(
-                        p.world_position + Vec3(ox, PLAYER_HEIGHT, oz),
-                        Vec3(0, 1, 0), distance=dy + 0.05, ignore=[p]).hit
-                        for ox, oz in corners):
-                    p.y += dy
-            
+                next_y, _ = sweep_vertical(
+                    world, p.x, p.y, p.z,
+                    PLAYER_RADIUS - 0.02, PLAYER_HEIGHT, dy,
+                )
+                p.y = next_y
             if sneak:
-                if not any(raycast(
-                        p.world_position + Vec3(ox, 0.05, oz),
-                        Vec3(0, -1, 0), distance=dy + 0.05, ignore=[p]).hit
-                        for ox, oz in corners):
-                    p.y -= dy
+                next_y, _ = sweep_vertical(
+                    world, p.x, p.y, p.z,
+                    PLAYER_RADIUS - 0.02, PLAYER_HEIGHT, -dy,
+                )
+                p.y = next_y
 
         if p.y < -30:
             p.position = self._find_safe_respawn()
@@ -263,35 +218,31 @@ class PlayerController:
             self.velocity_h = Vec3(0, 0, 0)
 
     def _find_safe_respawn(self):
-        import __main__
-
-        world = getattr(__main__, 'game', {}).get('world')
-        if not world or not world.boxes:
+        world = _world()
+        if not world or not world.block_data_by_position:
             return self.spawn_pos
 
         columns = {}
-        for block in world.boxes:
-            key = (round(block.x), round(block.z))
-            top_y = block.y + 0.5 if getattr(block, 'custom_mesh', False) else block.y
-            columns.setdefault(key, []).append(top_y)
+        for x, y, z in world.block_data_by_position:
+            columns.setdefault((x, z), []).append(y)
 
         origin_x = round(self.entity.x)
         origin_z = round(self.entity.z)
         max_radius = max(WORLD_SIZE, 32)
-
         for radius in range(max_radius + 1):
             for dx in range(-radius, radius + 1):
                 for dz in range(-radius, radius + 1):
                     if max(abs(dx), abs(dz)) != radius:
                         continue
-                    column = columns.get((origin_x + dx, origin_z + dz))
-                    if column:
-                        ground_y = max(column)
-                        return Vec3(origin_x + dx, ground_y,
-                                    origin_z + dz)
-
+                    x = origin_x + dx
+                    z = origin_z + dz
+                    for ground_y in sorted(columns.get((x, z), ()), reverse=True):
+                        if not world.has_block(x, ground_y + 1, z) and not world.has_block(
+                            x, ground_y + 2, z
+                        ):
+                            return Vec3(x, ground_y, z)
         return self.spawn_pos
-        
+
     def tick(self, dt):
         self.space_cd = max(0, self.space_cd - dt)
 
