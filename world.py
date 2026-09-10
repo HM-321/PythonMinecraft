@@ -1,6 +1,7 @@
 import json
 import os
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from time import monotonic
 
@@ -33,11 +34,21 @@ HIGH_ALTITUDE_ENABLE_HEIGHT = 14
 HIGH_ALTITUDE_DISABLE_HEIGHT = 9
 
 
+@dataclass(frozen=True, slots=True)
+class BlockData:
+    """描画Entityから独立した軽量な論理ブロック情報。"""
+    block_type: int
+    orientation: str = 'y'
+
+
 class World:
     def __init__(self, save_path):
         self.save_path = save_path
         self.boxes = []
+        # 既存互換: Entity参照。Stage 3CまではDDA、選択枠、粒子で使用する。
         self.blocks_by_position = {}
+        # 新しい正規データ: 描画方式やColliderに依存しない論理ブロック情報。
+        self.block_data_by_position = {}
         self.sand_positions = set()
         # チャンクごとのブロック座標索引
         self.blocks_by_chunk = defaultdict(set)
@@ -95,7 +106,15 @@ class World:
         return True
 
     def get_block(self, x, y, z):
+        """既存互換API。現在は描画Entityを返す。"""
         return self.blocks_by_position.get(self._position_key(x, y, z))
+
+    def get_block_data(self, x, y, z):
+        """描画Entityに依存しない論理ブロック情報を返す。"""
+        return self.block_data_by_position.get(self._position_key(x, y, z))
+
+    def has_block(self, x, y, z):
+        return self._position_key(x, y, z) in self.block_data_by_position
 
     def place_block(self, x, y, z, block_id, orientation='y'):
         position = self._position_key(x, y, z)
@@ -149,6 +168,10 @@ class World:
 
         self.boxes.append(block)
         self.blocks_by_position[position] = block
+        self.block_data_by_position[position] = BlockData(
+            block_type=int(block_id),
+            orientation=orientation,
+        )
         if block_id == SAND_BLOCK_ID:
             self.sand_positions.add(position)
         self.blocks_by_chunk[chunk_key].add(position)
@@ -163,6 +186,7 @@ class World:
             position = self._position_key(*position)
 
         registered = self.blocks_by_position.pop(position, None)
+        self.block_data_by_position.pop(position, None)
         self.sand_positions.discard(position)
         target = registered or block
 
@@ -193,6 +217,7 @@ class World:
             destroy(block)
         self.boxes.clear()
         self.blocks_by_position.clear()
+        self.block_data_by_position.clear()
         self.sand_positions.clear()
         self.blocks_by_chunk.clear()
         self.clear_lod()
@@ -519,6 +544,16 @@ class World:
     def loaded_chunk_keys(self):
         return tuple(self.blocks_by_chunk.keys())
 
+    def validate_block_data(self):
+        """Entity互換層と論理データ層の同期を検査する。"""
+        entity_positions = set(self.blocks_by_position)
+        data_positions = set(self.block_data_by_position)
+        return {
+            'ok': entity_positions == data_positions,
+            'entities_only': entity_positions - data_positions,
+            'data_only': data_positions - entity_positions,
+        }
+
     def debug_stats(self, player_x=None, player_z=None):
         """デバッグオーバーレイ表示用のチャンク/LOD統計。"""
         visible_blocks = sum(1 for block in self.boxes if block.visible)
@@ -529,6 +564,7 @@ class World:
             'lod_visible': len(self.visible_lod_chunks),
             'high_altitude': self._high_altitude_lod,
             'visible_blocks': visible_blocks,
+            'block_data': len(self.block_data_by_position),
             'protected_chunks': None,
         }
         if player_x is not None and player_z is not None:
