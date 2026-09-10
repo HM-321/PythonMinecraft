@@ -797,6 +797,9 @@ def update():
     protected_chunk_keys = game['world'].protected_chunk_keys(
         player.entity.x, player.entity.z,
     )
+    game['world'].update_active_colliders(
+        player.entity.x, player.entity.z,
+    )
     game['world'].rebuild_dirty_lod(max_chunks=1, active_chunk_keys=protected_chunk_keys)
     _t_lod = _pytime.perf_counter() - _t0
 

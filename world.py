@@ -53,6 +53,8 @@ class World:
         self.lod_enabled = False
         self._high_altitude_lod = False
         self.visible_lod_chunks = set()
+        # Colliderを有効にするプレイヤー周辺チャンク。
+        self.active_collider_chunks = set()
 
     @staticmethod
     def _position_key(x, y, z):
@@ -65,6 +67,32 @@ class World:
     def chunk_key_at(self, x, z):
         """呼び出し側（main.py）がプレイヤー位置からチャンクキーを求めるための公開API。"""
         return self._chunk_key(x, z)
+
+    def update_active_colliders(self, player_x, player_z):
+        """移動で対象チャンクが変わった時だけColliderを差分更新する。"""
+        next_chunks = self.protected_chunk_keys(player_x, player_z)
+        if next_chunks == self.active_collider_chunks:
+            return False
+
+        disable_chunks = self.active_collider_chunks - next_chunks
+        enable_chunks = next_chunks - self.active_collider_chunks
+
+        for chunk_key in disable_chunks:
+            for position in self.blocks_by_chunk.get(chunk_key, ()):
+                block = self.blocks_by_position.get(position)
+                collider = getattr(block, 'collider', None) if block else None
+                if collider is not None:
+                    collider.enabled = False
+
+        for chunk_key in enable_chunks:
+            for position in self.blocks_by_chunk.get(chunk_key, ()):
+                block = self.blocks_by_position.get(position)
+                collider = getattr(block, 'collider', None) if block else None
+                if collider is not None:
+                    collider.enabled = True
+
+        self.active_collider_chunks = next_chunks
+        return True
 
     def get_block(self, x, y, z):
         return self.blocks_by_position.get(self._position_key(x, y, z))
@@ -107,13 +135,18 @@ class World:
 
         block.block_type = block_id
         block.block_position = position
+        chunk_key = self._chunk_key(position[0], position[2])
+        # 初期ロード中は従来どおり有効。範囲確定後の遠隔更新だけ無効化する。
+        if self.active_collider_chunks and chunk_key not in self.active_collider_chunks:
+            collider = getattr(block, 'collider', None)
+            if collider is not None:
+                collider.enabled = False
 
         if name == 'Glass':
             block.setTransparency(TransparencyAttrib.M_alpha)
             block.set_bin('transparent', 30)
             block.setDepthWrite(False)
 
-        chunk_key = self._chunk_key(position[0], position[2])
         self.boxes.append(block)
         self.blocks_by_position[position] = block
         if block_id == SAND_BLOCK_ID:
@@ -176,6 +209,7 @@ class World:
         self.lod_enabled = False
         self._high_altitude_lod = False
         self.visible_lod_chunks.clear()
+        self.active_collider_chunks.clear()
 
     def dispose(self):
         self.clear()
