@@ -1,6 +1,7 @@
 import json
 import os
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from time import monotonic
 
@@ -20,6 +21,7 @@ SAND_BLOCK_ID = 5
 # 自分がいる/建築中のチャンクは常に保護チャンクとして通常描画され
 # LODは使われないため、この遅延は見た目に影響しない。
 LOD_REBUILD_DEBOUNCE = 0.3
+LOD_BREAK_REBUILD_DELAY = 0.05
 # 連続変更が長く続いた場合でも、最終的には反映されるようにする上限。
 LOD_REBUILD_MAX_WAIT = 5.0
 
@@ -33,11 +35,23 @@ HIGH_ALTITUDE_ENABLE_HEIGHT = 14
 HIGH_ALTITUDE_DISABLE_HEIGHT = 9
 
 
+@dataclass(frozen=True, slots=True)
+class BlockData:
+    """描画Entityから独立した軽量な論理ブロック情報。"""
+    block_type: int
+    orientation: str = 'y'
+
+
 class World:
     def __init__(self, save_path):
         self.save_path = save_path
         self.boxes = []
+        # 既存互換: Entity参照。Stage 3CまではDDA、選択枠、粒子で使用する。
         self.blocks_by_position = {}
+        # Stage 3C-3: Glass等、個別描画が必要なブロックだけ保持する。
+        self.block_entities_by_position = {}
+        # 新しい正規データ: 描画方式やColliderに依存しない論理ブロック情報。
+        self.block_data_by_position = {}
         self.sand_positions = set()
         # チャンクごとのブロック座標索引
         self.blocks_by_chunk = defaultdict(set)
@@ -45,6 +59,7 @@ class World:
         # 遠距離表示用。チャンクごと、ブロック種類ごとに上面を結合する。
         self.lod_entities = {}
         self.dirty_lod_chunks = set()
+        self.urgent_lod_chunks = set()
         # チャンクごとの dirty 化タイムスタンプ（連続変更のデバウンス用）
         self._lod_dirty_first_at = {}
         self._lod_dirty_last_at = {}
@@ -53,6 +68,10 @@ class World:
         self.lod_enabled = False
         self._high_altitude_lod = False
         self.visible_lod_chunks = set()
+        # 保護範囲外で不透明ブロックを結合メッシュ表示するチャンク。
+        self.combined_mesh_chunks = set()
+        # Colliderを有効にするプレイヤー周辺チャンク。
+        self.active_collider_chunks = set()
 
     @staticmethod
     def _position_key(x, y, z):
@@ -66,100 +85,152 @@ class World:
         """呼び出し側（main.py）がプレイヤー位置からチャンクキーを求めるための公開API。"""
         return self._chunk_key(x, z)
 
+    def update_active_colliders(self, player_x, player_z):
+        """Stage 3C-3ではプレイヤー衝突は論理データを使うため処理不要。"""
+        self.active_collider_chunks = self.protected_chunk_keys(player_x, player_z)
+        return False
+
     def get_block(self, x, y, z):
-        return self.blocks_by_position.get(self._position_key(x, y, z))
+        """論理ブロック情報を返す。個別描画Entityには依存しない。"""
+        return self.block_data_by_position.get(self._position_key(x, y, z))
+
+    def get_block_data(self, x, y, z):
+        """描画Entityに依存しない論理ブロック情報を返す。"""
+        return self.block_data_by_position.get(self._position_key(x, y, z))
+
+    def has_block(self, x, y, z):
+        return self._position_key(x, y, z) in self.block_data_by_position
 
     def place_block(self, x, y, z, block_id, orientation='y'):
         position = self._position_key(x, y, z)
-        existing = self.blocks_by_position.get(position)
+        existing = self.block_data_by_position.get(position)
         if existing is not None:
             return existing
 
         name, block_color, texture_info = BLOCK_TYPES[block_id]
         orientation = orientation if orientation in ('x', 'y', 'z') else 'y'
-
-        if isinstance(texture_info, dict) and 'atlas' in texture_info:
-            block = Entity(
-                color=block_color,
-                model=make_face_atlas_cube(orientation),
-                position=(position[0], position[1] - 0.5, position[2]),
-                texture=texture_info['atlas'],
-                parent=scene,
-                collider='box',
-            )
-            block.custom_mesh = True
-            block.orientation = orientation
-        else:
-            block = Entity(
-                color=block_color,
-                model='cube',
-                position=position,
-                texture=texture_info,
-                parent=scene,
-                origin_y=0.5,
-                collider='box',
-            )
-            block.custom_mesh = False
-            block.orientation = 'y'
-
-        if block.texture:
-            block.texture.filtering = None
-
-        block.block_type = block_id
-        block.block_position = position
-
-        if name == 'Glass':
-            block.setTransparency(TransparencyAttrib.M_alpha)
-            block.set_bin('transparent', 30)
-            block.setDepthWrite(False)
-
+        block_data = BlockData(int(block_id), orientation)
         chunk_key = self._chunk_key(position[0], position[2])
-        self.boxes.append(block)
-        self.blocks_by_position[position] = block
+
+        self.block_data_by_position[position] = block_data
+        self.blocks_by_position[position] = block_data
+        self.blocks_by_chunk[chunk_key].add(position)
         if block_id == SAND_BLOCK_ID:
             self.sand_positions.add(position)
-        self.blocks_by_chunk[chunk_key].add(position)
-        self._mark_lod_dirty(chunk_key)
-        return block
 
-    def remove_block(self, block):
-        position = getattr(block, 'block_position', None)
-        if position is None:
-            position = self._position_key(block.x, block.y, block.z)
-        else:
-            position = self._position_key(*position)
+        # 透明ブロックだけは描画順制御のため個別Entityを維持する。
+        if name == 'Glass' or texture_info is None:
+            if isinstance(texture_info, dict) and 'atlas' in texture_info:
+                entity = Entity(
+                    color=block_color,
+                    model=make_face_atlas_cube(orientation),
+                    position=(position[0], position[1] - 0.5, position[2]),
+                    texture=texture_info['atlas'],
+                    parent=scene,
+                    collider=None,
+                )
+                entity.custom_mesh = True
+            else:
+                entity = Entity(
+                    color=block_color,
+                    model='cube',
+                    position=position,
+                    texture=texture_info,
+                    parent=scene,
+                    origin_y=0.5,
+                    collider=None,
+                )
+                entity.custom_mesh = False
+            entity.orientation = orientation
+            entity.block_type = block_id
+            entity.block_position = position
+            if entity.texture:
+                entity.texture.filtering = None
+            if name == 'Glass':
+                entity.setTransparency(TransparencyAttrib.M_alpha)
+                entity.set_bin('transparent', 30)
+                entity.setDepthWrite(False)
+            self.boxes.append(entity)
+            self.block_entities_by_position[position] = entity
 
-        registered = self.blocks_by_position.pop(position, None)
-        self.sand_positions.discard(position)
-        target = registered or block
+        # 個別の不透明Entityがないため、設置後の結合メッシュを優先更新する。
+        # チャンク境界の場合は隣接チャンクも更新する。
+        for affected_chunk in self._affected_chunk_keys(position):
+            self._mark_lod_dirty(affected_chunk, urgent=True)
+        return block_data
 
-        try:
-            self.boxes.remove(target)
-        except ValueError:
+    def remove_block_at(self, x, y, z):
+        position = self._position_key(x, y, z)
+        if position not in self.block_data_by_position:
             return False
 
-        destroy(target)
+        self.block_data_by_position.pop(position, None)
+        self.blocks_by_position.pop(position, None)
+        self.sand_positions.discard(position)
+
+        entity = self.block_entities_by_position.pop(position, None)
+        if entity is not None:
+            try:
+                self.boxes.remove(entity)
+            except ValueError:
+                pass
+            destroy(entity)
+
         chunk_key = self._chunk_key(position[0], position[2])
-        chunk_positions = self.blocks_by_chunk.get(chunk_key)
-        if chunk_positions is not None:
-            chunk_positions.discard(position)
-            if not chunk_positions:
+        positions = self.blocks_by_chunk.get(chunk_key)
+        if positions is not None:
+            positions.discard(position)
+            if not positions:
                 self.blocks_by_chunk.pop(chunk_key, None)
-        self._mark_lod_dirty(chunk_key)
+        for affected_chunk in self._affected_chunk_keys(position):
+            self._mark_lod_dirty(affected_chunk, urgent=True)
         return True
 
-    def _mark_lod_dirty(self, chunk_key):
+    def remove_block(self, block):
+        """既存呼び出し向け互換API。"""
+        position = getattr(block, 'block_position', None)
+        if position is None:
+            for key, value in self.block_data_by_position.items():
+                if value is block:
+                    position = key
+                    break
+        if position is None:
+            return False
+        return self.remove_block_at(*position)
+
+    def _mark_lod_dirty(self, chunk_key, urgent=False):
         now = monotonic()
         self.dirty_lod_chunks.add(chunk_key)
+        if urgent:
+            self.urgent_lod_chunks.add(chunk_key)
         if chunk_key not in self._lod_dirty_first_at:
             self._lod_dirty_first_at[chunk_key] = now
         self._lod_dirty_last_at[chunk_key] = now
+
+    def _affected_chunk_keys(self, position):
+        """境界面を共有する隣接チャンクも返す。"""
+        x, _y, z = position
+        chunk_x, chunk_z = self._chunk_key(x, z)
+        result = {(chunk_x, chunk_z)}
+        local_x = x - chunk_x * LOD_CHUNK_SIZE
+        local_z = z - chunk_z * LOD_CHUNK_SIZE
+        if local_x == 0:
+            result.add((chunk_x - 1, chunk_z))
+        elif local_x == LOD_CHUNK_SIZE - 1:
+            result.add((chunk_x + 1, chunk_z))
+        if local_z == 0:
+            result.add((chunk_x, chunk_z - 1))
+        elif local_z == LOD_CHUNK_SIZE - 1:
+            result.add((chunk_x, chunk_z + 1))
+        return result
 
     def clear(self):
         for block in self.boxes:
             destroy(block)
         self.boxes.clear()
         self.blocks_by_position.clear()
+        self.block_entities_by_position.clear()
+        self.block_data_by_position.clear()
         self.sand_positions.clear()
         self.blocks_by_chunk.clear()
         self.clear_lod()
@@ -170,12 +241,15 @@ class World:
                 destroy(entity)
         self.lod_entities.clear()
         self.dirty_lod_chunks.clear()
+        self.urgent_lod_chunks.clear()
         self._lod_dirty_first_at.clear()
         self._lod_dirty_last_at.clear()
         self._previous_active_chunk_keys.clear()
         self.lod_enabled = False
         self._high_altitude_lod = False
         self.visible_lod_chunks.clear()
+        self.combined_mesh_chunks.clear()
+        self.active_collider_chunks.clear()
 
     def dispose(self):
         self.clear()
@@ -211,6 +285,14 @@ class World:
             uv_range = (1 / 3, 2 / 3)
         return texture_path, uv_range, block_color
 
+    def build_initial_meshes(self):
+        """初期読込後、全チャンクの不透明メッシュを一括生成する。"""
+        for chunk_key in tuple(self.blocks_by_chunk):
+            self._rebuild_lod_chunk(chunk_key)
+        self.dirty_lod_chunks.clear()
+        self._lod_dirty_first_at.clear()
+        self._lod_dirty_last_at.clear()
+
     def rebuild_dirty_lod(self, max_chunks=1, active_chunk_keys=None):
         # LOD再生成を複数フレームへ分散して、一括停止を避ける。
         # さらに、連続してブロックを設置/破壊しているチャンクは
@@ -241,7 +323,11 @@ class World:
 
         rebuilt = 0
 
-        for chunk_key in tuple(self.dirty_lod_chunks):
+        ordered_chunks = (
+            tuple(self.urgent_lod_chunks)
+            + tuple(self.dirty_lod_chunks - self.urgent_lod_chunks)
+        )
+        for chunk_key in ordered_chunks:
             if rebuilt >= max_chunks:
                 break
             if chunk_key in active_chunk_keys:
@@ -249,12 +335,18 @@ class World:
 
             last_at = self._lod_dirty_last_at.get(chunk_key, now)
             first_at = self._lod_dirty_first_at.get(chunk_key, now)
-            settled = (now - last_at) >= LOD_REBUILD_DEBOUNCE
+            delay = (
+                LOD_BREAK_REBUILD_DELAY
+                if chunk_key in self.urgent_lod_chunks
+                else LOD_REBUILD_DEBOUNCE
+            )
+            settled = (now - last_at) >= delay
             timed_out = (now - first_at) >= LOD_REBUILD_MAX_WAIT
             if not settled and not timed_out:
                 continue
 
             self.dirty_lod_chunks.discard(chunk_key)
+            self.urgent_lod_chunks.discard(chunk_key)
             self._lod_dirty_first_at.pop(chunk_key, None)
             self._lod_dirty_last_at.pop(chunk_key, None)
             self._rebuild_lod_chunk(chunk_key)
@@ -304,7 +396,7 @@ class World:
         groups = defaultdict(lambda: {'vertices': [], 'triangles': [], 'uvs': []})
         for position in self.blocks_by_chunk.get(chunk_key, ()):
             x, y, z = position
-            block = self.blocks_by_position.get(position)
+            block = self.block_data_by_position.get(position)
             if block is None or self._is_transparent(block):
                 continue
 
@@ -358,6 +450,13 @@ class World:
 
         self.lod_entities[chunk_key] = new_entities
 
+        # Stage 3C-3では不透明ブロックの個別Entityは存在しない。
+        # 新しい結合メッシュを同じフレームで有効化するだけでよい。
+        if chunk_key in self.combined_mesh_chunks:
+            for entity in new_entities:
+                entity.enabled = True
+            self.visible_lod_chunks.add(chunk_key)
+
     PROTECTION_RADIUS = 2
 
     def protected_chunk_keys(self, player_x, player_z):
@@ -384,31 +483,14 @@ class World:
 
     def update_visibility(self, player_x, player_y, player_z,
                           vertical_distance, render_distance):
-        self.rebuild_dirty_lod(
-            active_chunk_keys=self.protected_chunk_keys(player_x, player_z),
-        )
         chunk_radius = LOD_CHUNK_SIZE * 0.75
-        near_distance = max(8.0, render_distance * 0.6)
         lod_distance = render_distance + chunk_radius
-        near_distance2 = near_distance * near_distance
         lod_distance2 = lod_distance * lod_distance
-        # 境界付近で通常描画とLODが往復しないようヒステリシスを持たせる。
-        # render_distanceに関わらず固定高度で切り替える
-        # （HIGH_ALTITUDE_ENABLE_HEIGHT / HIGH_ALTITUDE_DISABLE_HEIGHT）。
-        height = abs(player_y)
-        enable_height = HIGH_ALTITUDE_ENABLE_HEIGHT
-        disable_height = HIGH_ALTITUDE_DISABLE_HEIGHT
-        if self._high_altitude_lod:
-            if height <= disable_height:
-                self._high_altitude_lod = False
-        elif height >= enable_height:
-            self._high_altitude_lod = True
-        high_altitude = self._high_altitude_lod
-
         protected_chunks = self.protected_chunk_keys(player_x, player_z)
 
-        near_chunks = set()
-        lod_chunks = set()
+        nearby_chunks = set()
+        desired_mesh_chunks = set()
+        fallback_chunks = set()
         all_chunks = set(self.lod_entities)
         all_chunks.update(self.blocks_by_chunk)
 
@@ -421,69 +503,58 @@ class World:
                 + (center_z - player_z) ** 2
             )
 
-            if chunk_key in protected_chunks:
-                # 足元と建築中のチャンクは通常Entityだけを使う。
-                near_chunks.add(chunk_key)
-            elif distance2 <= near_distance2:
-                near_chunks.add(chunk_key)
-                if high_altitude and chunk_key in self.lod_entities:
-                    lod_chunks.add(chunk_key)
-            elif distance2 <= lod_distance2:
-                if chunk_key in self.lod_entities:
-                    lod_chunks.add(chunk_key)
-                else:
-                    # LOD生成待ちは通常Entityで穴を防ぐ。
-                    near_chunks.add(chunk_key)
+            if distance2 <= lod_distance2:
+                # Stage 3C-3では不透明な個別Entityが存在しないため、
+                # プレイヤー周辺を含む全チャンクを結合メッシュで描画する。
+                desired_mesh_chunks.add(chunk_key)
+                if chunk_key not in self.lod_entities:
+                    fallback_chunks.add(chunk_key)
+
+        self.combined_mesh_chunks = desired_mesh_chunks
+        visible_mesh_chunks = desired_mesh_chunks - fallback_chunks
 
         for block in self.boxes:
-            x, y, z = block.block_position
+            x, _y, z = block.block_position
             chunk_key = self._chunk_key(x, z)
-            if chunk_key in protected_chunks:
-                should_enable = True
-            elif chunk_key in near_chunks:
-                # 高所（high_altitude）では高さで個別Entityを間引くが、
-                # それはそのチャンクをLODメッシュが実際に肩代わりできる
-                # 場合に限る。LODがまだ生成されていないチャンクで間引くと
-                # 何も描画されない「穴」になってしまうため、その場合は
-                # 高さに関わらず必ず表示してフォールバックする。
-                covered_by_lod = chunk_key in lod_chunks
-                if covered_by_lod:
-                    entity_vertical_distance = 6 if high_altitude else vertical_distance
-                    should_enable = abs(y - player_y) < entity_vertical_distance
-                else:
-                    should_enable = True
-            else:
-                should_enable = False
-            should_be_visible = (
-                should_enable
-                and (chunk_key not in lod_chunks or self._is_transparent(block))
+            should_enable = (
+                chunk_key in protected_chunks
+                or chunk_key in fallback_chunks
+                or chunk_key in visible_mesh_chunks
             )
             if block.enabled != should_enable:
                 block.enabled = should_enable
-            if block.visible != should_be_visible:
-                block.visible = should_be_visible
+            if block.visible != should_enable:
+                block.visible = should_enable
 
         for chunk_key, entities in self.lod_entities.items():
-            should_enable = chunk_key in lod_chunks
+            should_enable = chunk_key in visible_mesh_chunks
             for entity in entities:
                 if entity.enabled != should_enable:
                     entity.enabled = should_enable
 
-        self.visible_lod_chunks = set(lod_chunks)
-        self.lod_enabled = bool(lod_chunks)
+        self.visible_lod_chunks = set(visible_mesh_chunks)
+        self.lod_enabled = bool(visible_mesh_chunks)
 
     def get_chunk_positions(self, chunk_x, chunk_z):
         return tuple(self.blocks_by_chunk.get((chunk_x, chunk_z), ()))
 
     def get_chunk_blocks(self, chunk_x, chunk_z):
         return tuple(
-            self.blocks_by_position[position]
+            self.block_data_by_position[position]
             for position in self.get_chunk_positions(chunk_x, chunk_z)
-            if position in self.blocks_by_position
+            if position in self.block_data_by_position
         )
 
     def loaded_chunk_keys(self):
         return tuple(self.blocks_by_chunk.keys())
+
+    def validate_block_data(self):
+        positions = set(self.block_data_by_position)
+        return {
+            'ok': positions == set(self.blocks_by_position),
+            'logical_blocks': len(positions),
+            'individual_entities': len(self.boxes),
+        }
 
     def debug_stats(self, player_x=None, player_z=None):
         """デバッグオーバーレイ表示用のチャンク/LOD統計。"""
@@ -495,7 +566,13 @@ class World:
             'lod_visible': len(self.visible_lod_chunks),
             'high_altitude': self._high_altitude_lod,
             'visible_blocks': visible_blocks,
+            'block_data': len(self.block_data_by_position),
             'protected_chunks': None,
+            'individual_entities': len(self.boxes),
+            'mesh_entities': sum(
+                len(entities)
+                for entities in self.lod_entities.values()
+            ),
         }
         if player_x is not None and player_z is not None:
             stats['protected_chunks'] = len(
@@ -509,7 +586,10 @@ class World:
             'name': os.path.basename(self.save_path)[:-5],
             'last_played': datetime.now().isoformat(),
             'player': [player_entity.x, player_entity.y, player_entity.z],
-            'blocks': [self._block_to_save(block) for block in self.boxes],
+            'blocks': [
+                [x, y, z, data.block_type, data.orientation]
+                for (x, y, z), data in self.block_data_by_position.items()
+            ],
         }
         with open(self.save_path, 'w', encoding='utf-8') as save_file:
             json.dump(data, save_file, ensure_ascii=False)

@@ -63,27 +63,55 @@ def clean_all_outputs() -> None:
     remove_directory("build")
     remove_directory("dist")
 
-
 def organize_macos_app(mode: str) -> None:
     output_name = OUTPUT_NAMES[mode]
-
     app_path = DIST_DIR / f"{output_name}.app"
-    output_directory = DIST_DIR / output_name
-    destination = output_directory / f"{output_name}.app"
+    package_directory = DIST_DIR / "mac" / mode
+    destination = package_directory / f"{output_name}.app"
 
     if not app_path.exists():
         print(f"警告: appが見つからない: {app_path}")
         return
 
-    output_directory.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "codesign",
+            "--force",
+            "--deep",
+            "--sign",
+            "-",
+            str(app_path),
+        ],
+        check=True,
+    )
 
-    if destination.exists():
-        shutil.rmtree(destination)
+    subprocess.run(
+        [
+            "codesign",
+            "--verify",
+            "--deep",
+            "--strict",
+            "--verbose=2",
+            str(app_path),
+        ],
+        check=True,
+    )
 
-    shutil.move(str(app_path), str(destination))
+    if package_directory.exists():
+        shutil.rmtree(package_directory)
 
-    print(f"appを移動: {destination}")
+    package_directory.mkdir(parents=True)
 
+    subprocess.run(
+        [
+            "ditto",
+            str(app_path),
+            str(destination),
+        ],
+        check=True,
+    )
+
+    print(f"配布用app: {destination}")
 
 def run_build(
     spec_path: Path,

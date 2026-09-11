@@ -211,6 +211,8 @@ class DebugOverlay:
             f'Mode: {mode}\n'
             f'Selected: {block_name}\n'
             f'Blocks: {len(world.boxes)} (visible {stats["visible_blocks"]})\n'
+            f"Entities: individual {stats['individual_entities']} / "
+            f"mesh {stats['mesh_entities']}"
             f'Chunks loaded: {stats["chunks_loaded"]}\n'
             f'LOD built/dirty/visible: {stats["lod_built"]}/'
             f'{stats["lod_dirty"]}/{stats["lod_visible"]}\n'
