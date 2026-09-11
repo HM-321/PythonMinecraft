@@ -227,9 +227,12 @@ def start_game(save_path, is_new, use_template=False):
                 shutil.copyfile(TEMPLATE_PATH, save_path)
                 game['world'].load(game['player'].entity)
             else:
-                game['world'].generate_flat()
+                game['world'].generate_grassland()
         else:
-            game['world'].generate_flat()
+            game['world'].generate_grassland()
+        center = WORLD_SIZE / 2
+        surface_y = game['world'].terrain_surface_y(center, center)
+        game['player'].entity.position = (center, surface_y + 0.01, center)
         game['player'].yaw = 0
         game['player'].pitch = -17.5
         game['player'].entity.rotation_y = 0
@@ -238,8 +241,31 @@ def start_game(save_path, is_new, use_template=False):
         game['world'].load(game['player'].entity)
 
     game['world'].build_initial_meshes()
-    game['world'].build_initial_meshes()
     game['started'] = True
+
+
+def _populate_network_world(world, payload):
+    seed = payload.get('seed')
+    if seed is not None:
+        world.seed = int(seed)
+    generator = payload.get('generator')
+
+    if generator and world._generate_baseline(generator):
+        world._apply_saved_differences(
+            payload.get('placed_blocks', []),
+            payload.get('removed_blocks', []),
+        )
+    else:
+        world.generator = None
+        world._loading_world = True
+        for block in payload.get('blocks', []):
+            if len(block) >= 4:
+                world.place_block(
+                    *block[:3], block[3],
+                    orientation=block[4] if len(block) > 4 else 'y',
+                    generated=True,
+                )
+        world._loading_world = False
 
 
 def _start_network_game(snapshot):
@@ -272,11 +298,9 @@ def _start_network_game(snapshot):
         camera.rotation_x = game['player'].pitch
     camera.fov = settings.get('fov')
     game['world'] = World(None)
+    _populate_network_world(game['world'], snapshot)
     game['sand_physics'] = SandPhysics(game['world'], authoritative=False)
-    for block in snapshot.get('blocks', []):
-        if len(block) >= 4:
-            game['world'].place_block(*block[:3], block[3],
-                                      orientation=block[4] if len(block) > 4 else 'y')
+    game['world'].build_initial_meshes()
 
     game['remote_players'] = {}
     game['network_player_id'] = player_id
@@ -315,7 +339,7 @@ def _process_network_events():
         if message_type == 'world_snapshot' and not game['started']:
             _start_network_game(message)
         elif message_type == 'world_reset' and game.get('network_client'):
-            _reset_network_world(message.get('blocks', []))
+            _reset_network_world(message)
         elif message_type == 'player_join':
             _update_remote_player(message.get('player', {}))
         elif message_type == 'player_state':
@@ -382,15 +406,12 @@ def _apply_network_block_change(message):
         sound_mgr.play_place()
 
 
-def _reset_network_world(blocks):
+def _reset_network_world(payload):
     world = game.get('world')
     if not world:
         return
     world.clear()
-    for block in blocks:
-        if len(block) >= 4:
-            world.place_block(*block[:3], block[3],
-                              orientation=block[4] if len(block) > 4 else 'y')
+    _populate_network_world(world, payload)
     world.build_initial_meshes()
 
 

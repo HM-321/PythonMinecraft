@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import secrets
 import signal
 import socket
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from config import (PLAYER_HEIGHT, PLAYER_RADIUS, SAVE_VERSION, WORLD_SIZE)
 from network_protocol import MessageBuffer, ProtocolError, encode_message
+from terrain_generator import GENERATOR_ID, iter_grassland_blocks
 
 
 DEFAULT_PORT = 25565
@@ -48,9 +50,17 @@ class ServerWorld:
         self.generated_positions = set()
         self.placed_blocks = {}
         self.removed_blocks = set()
-        self.generator = 'flat_v1'
+        self.generator = GENERATOR_ID
         self.seed = secrets.randbits(64)
         self._load_or_create()
+
+    def _generated_grassland(self):
+        return {
+            (x, y, z): [block_id, orientation]
+            for x, y, z, block_id, orientation in iter_grassland_blocks(
+                self.seed, WORLD_SIZE
+            )
+        }
 
     def _load_or_create(self):
         if self.path.exists():
@@ -58,7 +68,14 @@ class ServerWorld:
                 data = json.load(world_file)
             self.seed = int(data.get('seed', secrets.randbits(64)))
             self.generator = data.get('generator')
-            if self.generator == 'flat_v1':
+            if self.generator == GENERATOR_ID:
+                self.blocks = self._generated_grassland()
+                self.generated_positions = set(self.blocks)
+                for e in data.get('removed_blocks', []):
+                    if len(e) >= 3: self.blocks.pop(tuple(map(int, e[:3])), None)
+                for e in data.get('placed_blocks', []):
+                    if len(e) >= 4: self.blocks[tuple(map(int, e[:3]))] = [int(e[3]), e[4] if len(e) > 4 else 'y']
+            elif self.generator == 'flat_v1':
                 self.blocks = {(x, 0, z): [0, 'y'] for x in range(WORLD_SIZE) for z in range(WORLD_SIZE)}
                 self.generated_positions = set(self.blocks)
                 for e in data.get('removed_blocks', []):
@@ -75,8 +92,8 @@ class ServerWorld:
             self.removed_blocks = {tuple(map(int,e[:3])) for e in data.get('removed_blocks',[]) if len(e)>=3}
             self.generated_positions.difference_update(self.placed_blocks)
             return
-        self.generator = 'flat_v1'
-        self.blocks = {(x, 0, z): [0, 'y'] for x in range(WORLD_SIZE) for z in range(WORLD_SIZE)}
+        self.generator = GENERATOR_ID
+        self.blocks = self._generated_grassland()
         self.generated_positions = set(self.blocks)
         self.placed_blocks.clear()
         self.removed_blocks.clear()
@@ -315,6 +332,18 @@ class MinecraftBuildServer:
             fg='green',
         )
         address_label.pack(pady=(0, 12))
+        seed_label = tk.Label(
+            content,
+            text=f'World Seed: {self.world.seed}',
+            font=('Arial', 10),
+        )
+        seed_label.pack(pady=(0, 2))
+        generator_label = tk.Label(
+            content,
+            text=f'Generator: {self.world.generator or "legacy"}',
+            font=('Arial', 10),
+        )
+        generator_label.pack(pady=(0, 10))
 
         max_players_var = tk.IntVar(value=self.max_players)
         tk.Label(content, text='Maximum players').pack(anchor='w', padx=28)
@@ -458,6 +487,10 @@ class MinecraftBuildServer:
             with self.sessions_lock:
                 count = len(self.sessions)
             player_label.config(text=f'Players: {count} / {self.max_players}')
+            seed_label.config(text=f'World Seed: {self.world.seed}')
+            generator_label.config(
+                text=f'Generator: {self.world.generator or "legacy"}'
+            )
             root.after(500, refresh)
 
         def delete_selected_world():
@@ -574,6 +607,10 @@ class MinecraftBuildServer:
             template_path = self._template_path()
             if template_path.exists():
                 self.world.blocks.clear()
+                self.world.generator = None
+                self.world.generated_positions.clear()
+                self.world.placed_blocks.clear()
+                self.world.removed_blocks.clear()
                 with template_path.open(encoding='utf-8') as template_file:
                     data = json.load(template_file)
                 for entry in data.get('blocks', []):
@@ -600,13 +637,7 @@ class MinecraftBuildServer:
     def create_new_world(self):
         self._save_world()
         new_path = self._next_world_path(APP_DIR / 'saves', '新規ワールド')
-        new_blocks = {
-            (x, 0, z): [0, 'y']
-            for x in range(WORLD_SIZE)
-            for z in range(WORLD_SIZE)
-        }
         self.world = ServerWorld(new_path)
-        self.world.blocks = new_blocks
         self._save_world()
         self._broadcast_world_reset()
         print('new world created and sent to connected players')
@@ -619,6 +650,10 @@ class MinecraftBuildServer:
         new_path = self._next_world_path(APP_DIR / 'saves', 'テンプレートワールド')
         new_world = ServerWorld(new_path)
         new_world.blocks = {}
+        new_world.generator = None
+        new_world.generated_positions.clear()
+        new_world.placed_blocks.clear()
+        new_world.removed_blocks.clear()
         for entry in data.get('blocks', []):
             if len(entry) < 4:
                 continue
@@ -638,6 +673,22 @@ class MinecraftBuildServer:
         self._broadcast_world_reset()
         print(f'existing world "{Path(path).name}" loaded and sent to connected players')
 
+    def _world_sync_payload(self):
+        payload = {
+            'seed': self.world.seed,
+            'generator': self.world.generator,
+            'placed_blocks': [
+                [x, y, z, value[0], value[1]]
+                for (x, y, z), value in self.world.placed_blocks.items()
+            ],
+            'removed_blocks': [
+                list(position) for position in sorted(self.world.removed_blocks)
+            ],
+        }
+        if self.world.generator is None:
+            payload['blocks'] = self.world.snapshot()
+        return payload
+
     def _broadcast_world_reset(self):
         with self.sessions_lock:
             sessions = list(self.sessions.values())
@@ -645,8 +696,7 @@ class MinecraftBuildServer:
             try:
                 session.send({
                     'type': 'world_reset',
-                    'seed': self.world.seed,
-                    'blocks': self.world.snapshot(),
+                    **self._world_sync_payload(),
                 })
             except OSError:
                 self._remove_session(session)
@@ -684,9 +734,8 @@ class MinecraftBuildServer:
             session.send({
                 'type': 'world_snapshot',
                 'player_id': session.player_id,
-                'seed': self.world.seed,
-                'blocks': self.world.snapshot(),
                 'players': self._player_snapshot(),
+                **self._world_sync_payload(),
             })
             self._broadcast({'type': 'player_join',
                              'player': self._public_player(session)},
