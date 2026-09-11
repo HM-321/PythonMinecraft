@@ -14,10 +14,10 @@ BLOCK_TYPES = [
     ),
     ('Dirt',  color.white, 'textures/dirt.png'),
     ('Stone', color.white, 'textures/stone.png'),
-    ('Wood',  color.white, 'textures/wood.png'),
+    ('Wood',  color.white, 'textures/red_wood.png'),
     ('Ice',   color.white, 'textures/ice.png'),
     ('Sand',  color.white, 'textures/sand.png'),
-    ('Brick', color.white, 'textures/brick.png'),
+    ('Leaves', color.white, 'textures/leaves.png'),
 
     # rgba() は 0.0〜1.0 の範囲で指定する
     # 元の rgba32(180, 220, 240, 50) 相当

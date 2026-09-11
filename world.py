@@ -12,6 +12,10 @@ from ursina import Entity, Mesh, Vec3, color, destroy, scene
 from block_types import BLOCK_TYPES
 from config import SAVE_VERSION, WORLD_SIZE
 from custom_mesh import make_face_atlas_cube
+from terrain_generator import (
+    GENERATOR_ID, TREE_GENERATOR_ID,
+    iter_grassland_blocks, iter_grassland_v2_blocks, surface_height,
+)
 
 
 LOD_CHUNK_SIZE = 10
@@ -287,7 +291,46 @@ class World:
             for x in range(WORLD_SIZE):
                 self.place_block(x, 0, z, 0, generated=True)
 
+    def generate_grassland(self):
+        self.generator = TREE_GENERATOR_ID
+        for x, y, z, block_id, orientation in iter_grassland_v2_blocks(
+            self.seed, WORLD_SIZE
+        ):
+            self.place_block(
+                x, y, z, block_id,
+                orientation=orientation,
+                generated=True,
+            )
+
+    def terrain_surface_y(self, x, z):
+        if self.generator in (GENERATOR_ID, TREE_GENERATOR_ID):
+            return surface_height(self.seed, int(round(x)), int(round(z)), WORLD_SIZE)
+        column = [y for bx, y, bz in self.block_data_by_position if bx == round(x) and bz == round(z)]
+        return max(column) if column else 0
+
     def _generate_baseline(self, generator):
+        if generator == TREE_GENERATOR_ID:
+            self.generator = TREE_GENERATOR_ID
+            for x, y, z, block_id, orientation in iter_grassland_v2_blocks(
+                self.seed, WORLD_SIZE
+            ):
+                self.place_block(
+                    x, y, z, block_id,
+                    orientation=orientation,
+                    generated=True,
+                )
+            return True
+        if generator == GENERATOR_ID:
+            self.generator = GENERATOR_ID
+            for x, y, z, block_id, orientation in iter_grassland_blocks(
+                self.seed, WORLD_SIZE
+            ):
+                self.place_block(
+                    x, y, z, block_id,
+                    orientation=orientation,
+                    generated=True,
+                )
+            return True
         if generator == 'flat_v1':
             self.generate_flat()
             return True

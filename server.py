@@ -13,7 +13,10 @@ from pathlib import Path
 
 from config import (PLAYER_HEIGHT, PLAYER_RADIUS, SAVE_VERSION, WORLD_SIZE)
 from network_protocol import MessageBuffer, ProtocolError, encode_message
-from terrain_generator import GENERATOR_ID, iter_grassland_blocks
+from terrain_generator import (
+    GENERATOR_ID, TREE_GENERATOR_ID,
+    iter_grassland_blocks, iter_grassland_v2_blocks,
+)
 
 
 DEFAULT_PORT = 25565
@@ -50,7 +53,7 @@ class ServerWorld:
         self.generated_positions = set()
         self.placed_blocks = {}
         self.removed_blocks = set()
-        self.generator = GENERATOR_ID
+        self.generator = TREE_GENERATOR_ID
         self.seed = secrets.randbits(64)
         self._load_or_create()
 
@@ -62,13 +65,32 @@ class ServerWorld:
             )
         }
 
+    def _generated_grassland_v2(self):
+        return {
+            (x, y, z): [block_id, orientation]
+            for x, y, z, block_id, orientation in iter_grassland_v2_blocks(
+                self.seed, WORLD_SIZE
+            )
+        }
+
     def _load_or_create(self):
         if self.path.exists():
             with self.path.open(encoding='utf-8') as world_file:
                 data = json.load(world_file)
             self.seed = int(data.get('seed', secrets.randbits(64)))
             self.generator = data.get('generator')
-            if self.generator == GENERATOR_ID:
+            if self.generator == TREE_GENERATOR_ID:
+                self.blocks = self._generated_grassland_v2()
+                self.generated_positions = set(self.blocks)
+                for e in data.get('removed_blocks', []):
+                    if len(e) >= 3:
+                        self.blocks.pop(tuple(map(int, e[:3])), None)
+                for e in data.get('placed_blocks', []):
+                    if len(e) >= 4:
+                        self.blocks[tuple(map(int, e[:3]))] = [
+                            int(e[3]), e[4] if len(e) > 4 else 'y'
+                        ]
+            elif self.generator == GENERATOR_ID:
                 self.blocks = self._generated_grassland()
                 self.generated_positions = set(self.blocks)
                 for e in data.get('removed_blocks', []):
@@ -92,8 +114,8 @@ class ServerWorld:
             self.removed_blocks = {tuple(map(int,e[:3])) for e in data.get('removed_blocks',[]) if len(e)>=3}
             self.generated_positions.difference_update(self.placed_blocks)
             return
-        self.generator = GENERATOR_ID
-        self.blocks = self._generated_grassland()
+        self.generator = TREE_GENERATOR_ID
+        self.blocks = self._generated_grassland_v2()
         self.generated_positions = set(self.blocks)
         self.placed_blocks.clear()
         self.removed_blocks.clear()
