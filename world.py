@@ -1,6 +1,7 @@
 import json
 import os
 import secrets
+from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,7 +11,7 @@ from panda3d.core import TransparencyAttrib, Texture
 from ursina import Entity, Mesh, Vec3, color, destroy, scene
 
 from block_types import BLOCK_TYPES
-from config import SAVE_VERSION, WORLD_SIZE
+from config import SAVE_VERSION, WORLD_SIZE, TEMPLATE_PATH
 from custom_mesh import make_face_atlas_cube
 from terrain_generator import (
     GENERATOR_ID, TREE_GENERATOR_ID,
@@ -20,6 +21,7 @@ from terrain_generator import (
 
 LOD_CHUNK_SIZE = 10
 SAND_BLOCK_ID = 5
+TEMPLATE_GENERATOR_ID = 'template_v1'
 
 # ジャンプ設置などで同じチャンクへ連続して変更が入っている間は
 # LOD再構築（全ブロック走査＋Mesh再生成という重い処理）を遅らせる。
@@ -308,7 +310,27 @@ class World:
         column = [y for bx, y, bz in self.block_data_by_position if bx == round(x) and bz == round(z)]
         return max(column) if column else 0
 
+    def generate_template(self):
+        template_path = Path(TEMPLATE_PATH)
+        if not template_path.exists():
+            return False
+        with template_path.open(encoding='utf-8') as template_file:
+            template = json.load(template_file)
+        self.generator = TEMPLATE_GENERATOR_ID
+        self._loading_world = True
+        for entry in template.get('blocks', []):
+            if len(entry) >= 4:
+                self.place_block(
+                    *entry[:3], entry[3],
+                    orientation=entry[4] if len(entry) > 4 else 'y',
+                    generated=True,
+                )
+        self._loading_world = False
+        return True
+
     def _generate_baseline(self, generator):
+        if generator == TEMPLATE_GENERATOR_ID:
+            return self.generate_template()
         if generator == TREE_GENERATOR_ID:
             self.generator = TREE_GENERATOR_ID
             for x, y, z, block_id, orientation in iter_grassland_v2_blocks(

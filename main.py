@@ -223,10 +223,7 @@ def start_game(save_path, is_new, use_template=False):
 
     if is_new:
         if use_template:
-            if os.path.exists(TEMPLATE_PATH):
-                shutil.copyfile(TEMPLATE_PATH, save_path)
-                game['world'].load(game['player'].entity)
-            else:
+            if not game['world'].generate_template():
                 game['world'].generate_grassland()
         else:
             game['world'].generate_grassland()

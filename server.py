@@ -57,6 +57,23 @@ class ServerWorld:
         self.seed = secrets.randbits(64)
         self._load_or_create()
 
+    @staticmethod
+    def _template_data():
+        resource_path = RESOURCE_DIR / 'Template.json'
+        template_path = resource_path if resource_path.exists() else APP_DIR / 'Template.json'
+        with template_path.open(encoding='utf-8') as template_file:
+            return json.load(template_file)
+
+    def _generated_template(self):
+        blocks = {}
+        for entry in self._template_data().get('blocks', []):
+            if len(entry) >= 4:
+                position = tuple(int(value) for value in entry[:3])
+                blocks[position] = [
+                    int(entry[3]), entry[4] if len(entry) > 4 else 'y'
+                ]
+        return blocks
+
     def _generated_grassland(self):
         return {
             (x, y, z): [block_id, orientation]
@@ -79,7 +96,19 @@ class ServerWorld:
                 data = json.load(world_file)
             self.seed = int(data.get('seed', secrets.randbits(64)))
             self.generator = data.get('generator')
-            if self.generator == TREE_GENERATOR_ID:
+            if self.generator == 'template_v1':
+                self.blocks = self._generated_template()
+                self.generated_positions = set(self.blocks)
+                for entry in data.get('removed_blocks', []):
+                    if len(entry) >= 3:
+                        self.blocks.pop(tuple(map(int, entry[:3])), None)
+                for entry in data.get('placed_blocks', []):
+                    if len(entry) >= 4:
+                        self.blocks[tuple(map(int, entry[:3]))] = [
+                            int(entry[3]),
+                            entry[4] if len(entry) > 4 else 'y',
+                        ]
+            elif self.generator == TREE_GENERATOR_ID:
                 self.blocks = self._generated_grassland_v2()
                 self.generated_positions = set(self.blocks)
                 for e in data.get('removed_blocks', []):
@@ -633,22 +662,11 @@ class MinecraftBuildServer:
     def _create_selected_world(self, path, use_template):
         self.world = ServerWorld(path)
         if use_template:
-            template_path = self._template_path()
-            if template_path.exists():
-                self.world.blocks.clear()
-                self.world.generator = None
-                self.world.generated_positions.clear()
-                self.world.placed_blocks.clear()
-                self.world.removed_blocks.clear()
-                with template_path.open(encoding='utf-8') as template_file:
-                    data = json.load(template_file)
-                for entry in data.get('blocks', []):
-                    if len(entry) < 4:
-                        continue
-                    x, y, z, block_id = entry[:4]
-                    orientation = entry[4] if len(entry) > 4 else 'y'
-                    self.world.blocks[(int(x), int(y), int(z))] = [
-                        int(block_id), orientation]
+            self.world.generator = 'template_v1'
+            self.world.blocks = self.world._generated_template()
+            self.world.generated_positions = set(self.world.blocks)
+            self.world.placed_blocks.clear()
+            self.world.removed_blocks.clear()
         self.world.save()
 
     @staticmethod
@@ -673,23 +691,15 @@ class MinecraftBuildServer:
 
     def create_template_world(self):
         self._save_world()
-        template_path = self._template_path()
-        with template_path.open(encoding='utf-8') as template_file:
-            data = json.load(template_file)
-        new_path = self._next_world_path(APP_DIR / 'saves', 'テンプレートワールド')
+        new_path = self._next_world_path(
+            APP_DIR / 'saves', 'テンプレートワールド'
+        )
         new_world = ServerWorld(new_path)
-        new_world.blocks = {}
-        new_world.generator = None
-        new_world.generated_positions.clear()
+        new_world.generator = 'template_v1'
+        new_world.blocks = new_world._generated_template()
+        new_world.generated_positions = set(new_world.blocks)
         new_world.placed_blocks.clear()
         new_world.removed_blocks.clear()
-        for entry in data.get('blocks', []):
-            if len(entry) < 4:
-                continue
-            x, y, z, block_id = entry[:4]
-            orientation = entry[4] if len(entry) > 4 else 'y'
-            new_world.blocks[(int(x), int(y), int(z))] = [
-                int(block_id), orientation]
         self.world = new_world
         self._save_world()
         self._broadcast_world_reset()
