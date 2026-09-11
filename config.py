@@ -66,7 +66,7 @@ def write_resource_log():
 
 ensure_data_dirs()
 
-WORLD_SIZE = 60
+WORLD_SIZE = 100
 RENDER_DISTANCE = 20
 
 PLAYER_HEIGHT = 1.8
