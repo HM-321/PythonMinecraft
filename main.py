@@ -32,6 +32,7 @@ from sand_physics import SandPhysics
 from multiplayer_client import MultiplayerClient
 from player_model import RemotePlayer
 from voxel_raycast import cast as voxel_cast
+from chunk_debug import ChunkBoundaryDisplay
 
 
 install_crash_logging()
@@ -124,6 +125,34 @@ def _limit_fps():
     _last_frame = _pytime.time()
 
 
+class _SelectionTarget:
+    """SelectionFrameへ座標だけ渡す軽量互換オブジェクト。"""
+    __slots__ = (
+        'position',
+        'block_position',
+        'custom_mesh',
+        'x',
+        'y',
+        'z',
+    )
+
+    def __init__(self):
+        self.position = Vec3(0, 0, 0)
+        self.block_position = (0, 0, 0)
+        self.custom_mesh = False
+        self.x = 0
+        self.y = 0
+        self.z = 0
+
+    def set_position(self, position):
+        self.block_position = tuple(position)
+        self.x, self.y, self.z = self.block_position
+        self.position = Vec3(self.x, self.y, self.z)
+
+
+_selection_target = _SelectionTarget()
+
+
 game = {
     'started': False,
     'paused': False,
@@ -135,6 +164,8 @@ game = {
     'crosshair': None,      # ← 追加
     'selection': None,
     'debug': None,
+    'chunk_debug': ChunkBoundaryDisplay(),
+    'debug_key_held': False,
     'first_frame': True,
     'click_cd': 0,
     'scroll_cd': 0,
@@ -206,6 +237,8 @@ def start_game(save_path, is_new, use_template=False):
     else:
         game['world'].load(game['player'].entity)
 
+    game['world'].build_initial_meshes()
+    game['world'].build_initial_meshes()
     game['started'] = True
 
 
@@ -339,8 +372,9 @@ def _apply_network_block_change(message):
     existing = world.get_block(*position)
     if message.get('action') == 'break':
         if existing:
-            block_particles.burst(existing)
-            world.remove_block(existing)
+            block_data = world.get_block_data(*position)
+            block_particles.burst_at(position, block_data)
+            world.remove_block_at(*position)
             sound_mgr.play_break()
     elif message.get('action') == 'place' and not existing:
         world.place_block(*position, message.get('block_id', 0),
@@ -357,8 +391,7 @@ def _reset_network_world(blocks):
         if len(block) >= 4:
             world.place_block(*block[:3], block[3],
                               orientation=block[4] if len(block) > 4 else 'y')
-    
-
+    world.build_initial_meshes()
 
 
 def _open_pause_menu():
@@ -408,6 +441,12 @@ def _save_and_quit():
     camera.parent = scene
     camera.position = (0, 0, 0)
     camera.rotation = (0, 0, 0)
+
+    # タイトル画面へ戻る前にチャンク境界Entityを破棄する。
+    chunk_debug = game.get('chunk_debug')
+    if chunk_debug is not None:
+        chunk_debug.enabled = False
+        chunk_debug.clear()
 
     game.update({
         'started': False,
@@ -503,8 +542,9 @@ def _try_break_block():
         game['network_client'].request_break(*hit.position)
         return
 
-    block_particles.burst(hit.block)
-    game['world'].remove_block(hit.block)
+    block_data = game['world'].get_block_data(*hit.position)
+    block_particles.burst_at(hit.position, block_data)
+    game['world'].remove_block_at(*hit.position)
     sound_mgr.play_break()
 
 
@@ -785,7 +825,8 @@ def update():
             game['world'], camera.world_position, camera.forward, REACH
         )
         if hit is not None:
-            game['selection'].show_at(hit.block)
+            _selection_target.set_position(hit.position)
+            game['selection'].show_at(_selection_target)
         else:
             game['selection'].hide()
     _t_selection = _pytime.perf_counter() - _t0
@@ -800,7 +841,12 @@ def update():
     game['world'].update_active_colliders(
         player.entity.x, player.entity.z,
     )
-    game['world'].rebuild_dirty_lod(max_chunks=1, active_chunk_keys=protected_chunk_keys)
+    # Stage 3C-3では保護チャンクも結合メッシュで描画するため、
+    # 建築中チャンクもデバウンス後に再構築する。
+    game['world'].rebuild_dirty_lod(
+        max_chunks=1,
+        active_chunk_keys=set(),
+    )
     _t_lod = _pytime.perf_counter() - _t0
 
     # ===== 距離カリング =====
@@ -833,6 +879,10 @@ def update():
 
     _t0 = _pytime.perf_counter()
     game['hotbar'].maybe_hide()
+    game['chunk_debug'].update(
+        game['world'], player.entity,
+    )
+
     game['debug'].update(
         time.dt,
         game['player'],
@@ -890,7 +940,19 @@ def input(key):
     key_open_ss = settings.get('key_open_screenshots')
     key_jump = settings.get('key_jump')
 
+    if key == f'{key_debug} up':
+        game['debug_key_held'] = False
+        return
+
+    if key == 'g' and (
+        game.get('debug_key_held', False)
+        or held_keys[key_debug]
+    ):
+        game['chunk_debug'].toggle()
+        return
+
     if key == key_debug:
+        game['debug_key_held'] = True
         game['debug'].toggle()
         return
 

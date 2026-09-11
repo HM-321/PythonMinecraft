@@ -59,9 +59,8 @@ class SandPhysics:
 
     def start_remote(self, x, y, z, fall_id=None):
         position = tuple(int(round(v)) for v in (x, y, z))
-        existing = self.world.get_block(*position)
-        if existing:
-            self.world.remove_block(existing)
+        if self.world.has_block(*position):
+            self.world.remove_block_at(*position)
         self.falling.append({
             'id': fall_id,
             'entity': self._make_visual(*position),
@@ -95,7 +94,7 @@ class SandPhysics:
     def _start_unstable_sand(self):
         candidates = []
         for position in tuple(self.world.sand_positions):
-            block = self.world.blocks_by_position.get(position)
+            block = self.world.get_block_data(*position)
             if block is None:
                 continue
             x, y, z = position
@@ -111,7 +110,7 @@ class SandPhysics:
 
         # 各列の最下段を優先し、1スキャンにつき1個だけ開始する。
         y, x, z, block = min(candidates)
-        self.world.remove_block(block)
+        self.world.remove_block_at(x, y, z)
         self.falling.append({
             'id': None,
             'entity': self._make_visual(x, y, z),
