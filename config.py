@@ -66,7 +66,7 @@ def write_resource_log():
 
 ensure_data_dirs()
 
-WORLD_SIZE = 60
+WORLD_SIZE = 100
 RENDER_DISTANCE = 20
 
 PLAYER_HEIGHT = 1.8
@@ -88,4 +88,4 @@ DOUBLE_TAP = 0.3
 CLICK_INTERVAL = 0.25
 SCROLL_INTERVAL = 0.15
 
-SAVE_VERSION = 1
+SAVE_VERSION = 3

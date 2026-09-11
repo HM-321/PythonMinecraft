@@ -201,6 +201,8 @@ class DebugOverlay:
 
         self.text.text = (
             f'World: {world_name}\n'
+            f'Seed: {world.seed}\n'
+            f'Generator: {world.generator or "legacy"}\n'
             f'FPS: {self._fps:.0f}\n'
             f'Memory: {self._mem_mb:.0f} MB\n'
             f'XYZ: {p.x:.2f} / {p.y:.2f} / {p.z:.2f}\n'
@@ -212,7 +214,7 @@ class DebugOverlay:
             f'Selected: {block_name}\n'
             f'Blocks: {len(world.boxes)} (visible {stats["visible_blocks"]})\n'
             f"Entities: individual {stats['individual_entities']} / "
-            f"mesh {stats['mesh_entities']}"
+            f"mesh {stats['mesh_entities']}\n"
             f'Chunks loaded: {stats["chunks_loaded"]}\n'
             f'LOD built/dirty/visible: {stats["lod_built"]}/'
             f'{stats["lod_dirty"]}/{stats["lod_visible"]}\n'
