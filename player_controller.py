@@ -1,7 +1,7 @@
 from ursina import Entity, Vec3, camera, raycast, held_keys, time
 from settings import settings
 from voxel_collision import (
-    _world, overlaps_player, supporting_top, sweep_vertical,
+    _world, supporting_top, sweep_horizontal, sweep_vertical,
 )
 from config import (PLAYER_HEIGHT, PLAYER_RADIUS,
                     MOVE_SPEED, SNEAK_MUL, SPRINT_MUL, FRICTION,
@@ -56,15 +56,15 @@ class PlayerController:
             return True
         p = self.entity
         world = _world()
-        next_x = p.x + (delta if axis == 'x' else 0)
-        next_z = p.z + (delta if axis == 'z' else 0)
 
-        if overlaps_player(
-            world, next_x, p.y, next_z, PLAYER_RADIUS, PLAYER_HEIGHT
-        ):
-            return False
+        next_x, next_z, collided = sweep_horizontal(
+            world,
+            p.x, p.y, p.z,
+            PLAYER_RADIUS, PLAYER_HEIGHT,
+            axis, delta,
+        )
 
-        if sneak and self.gravity_on:
+        if sneak and self.gravity_on and not collided:
             on_ground = supporting_top(
                 world, p.x, p.y, p.z,
                 PLAYER_RADIUS - 0.02, max_drop=0.18,
@@ -76,11 +76,10 @@ class PlayerController:
             if on_ground and not can_stand:
                 return False
 
-        if axis == 'x':
-            p.x = next_x
-        else:
-            p.z = next_z
-        return True
+        # 衝突時も壁面直前まで進める。逆方向入力は前面に壁がないため通る。
+        p.x = next_x
+        p.z = next_z
+        return not collided
 
 
     def update_view(self, dx_mouse, dy_mouse):

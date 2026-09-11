@@ -88,3 +88,52 @@ def sweep_vertical(world, x, y, z, radius, height, delta):
     if ceiling_bottom is not None:
         return ceiling_bottom - height, True
     return y + delta, False
+
+
+def sweep_horizontal(world, x, y, z, radius, height, axis, delta):
+    """進行方向の前面だけを検査し、壁面まで移動して停止する。"""
+    if world is None or delta == 0:
+        return (x + delta, z, False) if axis == 'x' else (x, z + delta, False)
+
+    target_x = x + (delta if axis == 'x' else 0.0)
+    target_z = z + (delta if axis == 'z' else 0.0)
+    y_cells = tuple(_y_cells(y, height))
+
+    if axis == 'x':
+        side_cells = tuple(_x_cells(target_z, radius))
+        current_edge = x + radius if delta > 0 else x - radius
+        target_edge = target_x + radius if delta > 0 else target_x - radius
+        if delta > 0:
+            first = math.floor(current_edge + 0.5 - EPSILON) + 1
+            last = math.floor(target_edge + 0.5 - EPSILON)
+            scan = range(first, last + 1)
+        else:
+            first = math.floor(current_edge + 0.5 + EPSILON) - 1
+            last = math.floor(target_edge + 0.5 + EPSILON)
+            scan = range(first, last - 1, -1)
+
+        for bx in scan:
+            if any(world.has_block(bx, by, bz) for bz in side_cells for by in y_cells):
+                if delta > 0:
+                    return bx - 0.5 - radius - EPSILON, z, True
+                return bx + 0.5 + radius + EPSILON, z, True
+        return target_x, z, False
+
+    side_cells = tuple(_x_cells(target_x, radius))
+    current_edge = z + radius if delta > 0 else z - radius
+    target_edge = target_z + radius if delta > 0 else target_z - radius
+    if delta > 0:
+        first = math.floor(current_edge + 0.5 - EPSILON) + 1
+        last = math.floor(target_edge + 0.5 - EPSILON)
+        scan = range(first, last + 1)
+    else:
+        first = math.floor(current_edge + 0.5 + EPSILON) - 1
+        last = math.floor(target_edge + 0.5 + EPSILON)
+        scan = range(first, last - 1, -1)
+
+    for bz in scan:
+        if any(world.has_block(bx, by, bz) for bx in side_cells for by in y_cells):
+            if delta > 0:
+                return x, bz - 0.5 - radius - EPSILON, True
+            return x, bz + 0.5 + radius + EPSILON, True
+    return x, target_z, False
