@@ -48,6 +48,7 @@ class ServerWorld:
         self.generated_positions = set()
         self.placed_blocks = {}
         self.removed_blocks = set()
+        self.generator = 'flat_v1'
         self.seed = secrets.randbits(64)
         self._load_or_create()
 
@@ -56,34 +57,26 @@ class ServerWorld:
             with self.path.open(encoding='utf-8') as world_file:
                 data = json.load(world_file)
             self.seed = int(data.get('seed', secrets.randbits(64)))
-            for entry in data.get('blocks', []):
-                if len(entry) < 4:
-                    continue
-                x, y, z, block_id = entry[:4]
-                orientation = entry[4] if len(entry) > 4 else 'y'
-                position = (int(x), int(y), int(z))
-                self.blocks[position] = [int(block_id), orientation]
-                self.generated_positions.add(position)
-            self.placed_blocks = {
-                tuple(int(v) for v in entry[:3]): [
-                    int(entry[3]),
-                    entry[4] if len(entry) > 4 else 'y',
-                ]
-                for entry in data.get('placed_blocks', [])
-                if len(entry) >= 4
-            }
-            self.removed_blocks = {
-                tuple(int(v) for v in entry[:3])
-                for entry in data.get('removed_blocks', [])
-                if len(entry) >= 3
-            }
+            self.generator = data.get('generator')
+            if self.generator == 'flat_v1':
+                self.blocks = {(x, 0, z): [0, 'y'] for x in range(WORLD_SIZE) for z in range(WORLD_SIZE)}
+                self.generated_positions = set(self.blocks)
+                for e in data.get('removed_blocks', []):
+                    if len(e) >= 3: self.blocks.pop(tuple(map(int, e[:3])), None)
+                for e in data.get('placed_blocks', []):
+                    if len(e) >= 4: self.blocks[tuple(map(int, e[:3]))] = [int(e[3]), e[4] if len(e) > 4 else 'y']
+            else:
+                self.generator = None
+                self.blocks = {}
+                for e in data.get('blocks', []):
+                    if len(e) >= 4: self.blocks[tuple(map(int, e[:3]))] = [int(e[3]), e[4] if len(e) > 4 else 'y']
+                self.generated_positions = set(self.blocks)
+            self.placed_blocks = {tuple(map(int,e[:3])):[int(e[3]),e[4] if len(e)>4 else 'y'] for e in data.get('placed_blocks',[]) if len(e)>=4}
+            self.removed_blocks = {tuple(map(int,e[:3])) for e in data.get('removed_blocks',[]) if len(e)>=3}
             self.generated_positions.difference_update(self.placed_blocks)
             return
-        self.blocks = {
-            (x, 0, z): [0, 'y']
-            for x in range(WORLD_SIZE)
-            for z in range(WORLD_SIZE)
-        }
+        self.generator = 'flat_v1'
+        self.blocks = {(x, 0, z): [0, 'y'] for x in range(WORLD_SIZE) for z in range(WORLD_SIZE)}
         self.generated_positions = set(self.blocks)
         self.placed_blocks.clear()
         self.removed_blocks.clear()
@@ -102,13 +95,15 @@ class ServerWorld:
             'name': self.path.stem,
             'last_played': time.strftime('%Y-%m-%dT%H:%M:%S'),
             'player': [WORLD_SIZE / 2, 3, WORLD_SIZE / 2],
-            'blocks': self.snapshot(),
+            'generator': self.generator,
             'placed_blocks': [
                 [x, y, z, value[0], value[1]]
                 for (x, y, z), value in self.placed_blocks.items()
             ],
             'removed_blocks': [list(position) for position in sorted(self.removed_blocks)],
         }
+        if self.generator is None:
+            data['blocks'] = self.snapshot()
         temporary_path = self.path.with_suffix(self.path.suffix + '.tmp')
         with temporary_path.open('w', encoding='utf-8') as world_file:
             json.dump(data, world_file, ensure_ascii=False)
