@@ -45,24 +45,48 @@ class ServerWorld:
     def __init__(self, path):
         self.path = Path(path)
         self.blocks = {}
+        self.generated_positions = set()
+        self.placed_blocks = {}
+        self.removed_blocks = set()
+        self.seed = secrets.randbits(64)
         self._load_or_create()
 
     def _load_or_create(self):
         if self.path.exists():
             with self.path.open(encoding='utf-8') as world_file:
                 data = json.load(world_file)
+            self.seed = int(data.get('seed', secrets.randbits(64)))
             for entry in data.get('blocks', []):
                 if len(entry) < 4:
                     continue
                 x, y, z, block_id = entry[:4]
                 orientation = entry[4] if len(entry) > 4 else 'y'
-                self.blocks[(int(x), int(y), int(z))] = [int(block_id), orientation]
+                position = (int(x), int(y), int(z))
+                self.blocks[position] = [int(block_id), orientation]
+                self.generated_positions.add(position)
+            self.placed_blocks = {
+                tuple(int(v) for v in entry[:3]): [
+                    int(entry[3]),
+                    entry[4] if len(entry) > 4 else 'y',
+                ]
+                for entry in data.get('placed_blocks', [])
+                if len(entry) >= 4
+            }
+            self.removed_blocks = {
+                tuple(int(v) for v in entry[:3])
+                for entry in data.get('removed_blocks', [])
+                if len(entry) >= 3
+            }
+            self.generated_positions.difference_update(self.placed_blocks)
             return
         self.blocks = {
             (x, 0, z): [0, 'y']
             for x in range(WORLD_SIZE)
             for z in range(WORLD_SIZE)
         }
+        self.generated_positions = set(self.blocks)
+        self.placed_blocks.clear()
+        self.removed_blocks.clear()
 
     def snapshot(self):
         return [
@@ -74,10 +98,16 @@ class ServerWorld:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             'version': SAVE_VERSION,
+            'seed': self.seed,
             'name': self.path.stem,
             'last_played': time.strftime('%Y-%m-%dT%H:%M:%S'),
             'player': [WORLD_SIZE / 2, 3, WORLD_SIZE / 2],
             'blocks': self.snapshot(),
+            'placed_blocks': [
+                [x, y, z, value[0], value[1]]
+                for (x, y, z), value in self.placed_blocks.items()
+            ],
+            'removed_blocks': [list(position) for position in sorted(self.removed_blocks)],
         }
         temporary_path = self.path.with_suffix(self.path.suffix + '.tmp')
         with temporary_path.open('w', encoding='utf-8') as world_file:
@@ -620,6 +650,7 @@ class MinecraftBuildServer:
             try:
                 session.send({
                     'type': 'world_reset',
+                    'seed': self.world.seed,
                     'blocks': self.world.snapshot(),
                 })
             except OSError:
@@ -658,6 +689,7 @@ class MinecraftBuildServer:
             session.send({
                 'type': 'world_snapshot',
                 'player_id': session.player_id,
+                'seed': self.world.seed,
                 'blocks': self.world.snapshot(),
                 'players': self._player_snapshot(),
             })
@@ -717,6 +749,8 @@ class MinecraftBuildServer:
             if orientation not in ('x', 'y', 'z'):
                 orientation = 'y'
             self.world.blocks[position] = [block_id, orientation]
+            self.world.placed_blocks[position] = [block_id, orientation]
+            self.world.removed_blocks.discard(position)
             event = {'type': 'block_changed', 'action': 'place',
                      'x': position[0], 'y': position[1], 'z': position[2],
                      'block_id': block_id, 'orientation': orientation}
@@ -724,6 +758,10 @@ class MinecraftBuildServer:
             if position not in self.world.blocks:
                 return
             del self.world.blocks[position]
+            if position in self.world.placed_blocks:
+                self.world.placed_blocks.pop(position, None)
+            elif position in self.world.generated_positions:
+                self.world.removed_blocks.add(position)
             print(f'player {session.player_id} broke block: {position}')
             event = {'type': 'block_changed', 'action': 'break',
                      'x': position[0], 'y': position[1], 'z': position[2]}

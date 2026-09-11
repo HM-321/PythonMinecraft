@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -45,6 +46,7 @@ class BlockData:
 class World:
     def __init__(self, save_path):
         self.save_path = save_path
+        self.seed = secrets.randbits(64)
         self.boxes = []
         # 既存互換: Entity参照。Stage 3CまではDDA、選択枠、粒子で使用する。
         self.blocks_by_position = {}
@@ -52,6 +54,11 @@ class World:
         self.block_entities_by_position = {}
         # 新しい正規データ: 描画方式やColliderに依存しない論理ブロック情報。
         self.block_data_by_position = {}
+        # 基本地形とプレイヤー変更の差分。Phase 2Aでは全blocks保存も維持する。
+        self.generated_positions = set()
+        self.placed_blocks = {}
+        self.removed_blocks = set()
+        self._loading_world = False
         self.sand_positions = set()
         # チャンクごとのブロック座標索引
         self.blocks_by_chunk = defaultdict(set)
@@ -101,7 +108,7 @@ class World:
     def has_block(self, x, y, z):
         return self._position_key(x, y, z) in self.block_data_by_position
 
-    def place_block(self, x, y, z, block_id, orientation='y'):
+    def place_block(self, x, y, z, block_id, orientation='y', generated=False):
         position = self._position_key(x, y, z)
         existing = self.block_data_by_position.get(position)
         if existing is not None:
@@ -115,6 +122,12 @@ class World:
         self.block_data_by_position[position] = block_data
         self.blocks_by_position[position] = block_data
         self.blocks_by_chunk[chunk_key].add(position)
+
+        if generated or self._loading_world:
+            self.generated_positions.add(position)
+        else:
+            self.placed_blocks[position] = block_data
+            self.removed_blocks.discard(position)
         if block_id == SAND_BLOCK_ID:
             self.sand_positions.add(position)
 
@@ -163,6 +176,15 @@ class World:
         position = self._position_key(x, y, z)
         if position not in self.block_data_by_position:
             return False
+
+        was_generated = position in self.generated_positions
+        was_player_placed = position in self.placed_blocks
+        if not self._loading_world:
+            if was_player_placed:
+                # 設置してから破壊した変更は相殺する。
+                self.placed_blocks.pop(position, None)
+            elif was_generated:
+                self.removed_blocks.add(position)
 
         self.block_data_by_position.pop(position, None)
         self.blocks_by_position.pop(position, None)
@@ -231,6 +253,10 @@ class World:
         self.blocks_by_position.clear()
         self.block_entities_by_position.clear()
         self.block_data_by_position.clear()
+        self.generated_positions.clear()
+        self.placed_blocks.clear()
+        self.removed_blocks.clear()
+        self._loading_world = False
         self.sand_positions.clear()
         self.blocks_by_chunk.clear()
         self.clear_lod()
@@ -257,7 +283,7 @@ class World:
     def generate_flat(self):
         for z in range(WORLD_SIZE):
             for x in range(WORLD_SIZE):
-                self.place_block(x, 0, z, 0)
+                self.place_block(x, 0, z, 0, generated=True)
 
     @staticmethod
     def _is_transparent(block):
@@ -583,12 +609,21 @@ class World:
     def save(self, player_entity):
         data = {
             'version': SAVE_VERSION,
+            'seed': self.seed,
             'name': os.path.basename(self.save_path)[:-5],
             'last_played': datetime.now().isoformat(),
             'player': [player_entity.x, player_entity.y, player_entity.z],
             'blocks': [
                 [x, y, z, data.block_type, data.orientation]
                 for (x, y, z), data in self.block_data_by_position.items()
+            ],
+            'placed_blocks': [
+                [x, y, z, data.block_type, data.orientation]
+                for (x, y, z), data in self.placed_blocks.items()
+            ],
+            'removed_blocks': [
+                [x, y, z]
+                for (x, y, z) in sorted(self.removed_blocks)
             ],
         }
         with open(self.save_path, 'w', encoding='utf-8') as save_file:
@@ -614,11 +649,35 @@ class World:
         with open(self.save_path, encoding='utf-8') as save_file:
             data = json.load(save_file)
 
+        self.seed = int(data.get('seed', secrets.randbits(64)))
+
         self.clear()
-        for entry in data['blocks']:
+        self._loading_world = True
+        for entry in data.get('blocks', []):
             bx, by, bz, block_id = entry[:4]
             orientation = entry[4] if len(entry) > 4 else 'y'
-            self.place_block(bx, by, bz, block_id, orientation=orientation)
+            self.place_block(
+                bx, by, bz, block_id,
+                orientation=orientation,
+                generated=True,
+            )
+        self._loading_world = False
+
+        self.placed_blocks = {
+            self._position_key(*entry[:3]): BlockData(
+                int(entry[3]),
+                entry[4] if len(entry) > 4 else 'y',
+            )
+            for entry in data.get('placed_blocks', [])
+            if len(entry) >= 4
+        }
+        self.removed_blocks = {
+            self._position_key(*entry[:3])
+            for entry in data.get('removed_blocks', [])
+            if len(entry) >= 3
+        }
+        # プレイヤー設置分は生成地形集合から外す。
+        self.generated_positions.difference_update(self.placed_blocks)
 
         player_entity.position = tuple(data['player'])
         print(f'loaded: {self.save_path}, boxes count={len(self.boxes)}')
