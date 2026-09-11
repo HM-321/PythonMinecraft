@@ -14,20 +14,31 @@ class BlockParticles:
         self._images = {}
 
     def burst(self, block, amount=16):
+        """既存互換ラッパー。"""
         block_id = getattr(block, 'block_type', None)
-        if block_id is None or not 0 <= block_id < len(BLOCK_TYPES):
-            return
+        position = getattr(block, 'block_position', None)
+        if position is None:
+            position = block.position
+        self.burst_at(position, block_id, amount=amount)
 
+    def burst_at(self, position, block_data, amount=16):
+        """Entityではなく座標とBlockData/IDから破壊粒子を生成する。"""
+        block_id = getattr(block_data, 'block_type', block_data)
+        if block_id is None or not 0 <= int(block_id) < len(BLOCK_TYPES):
+            return
+        block_id = int(block_id)
         _, block_color, texture_info = BLOCK_TYPES[block_id]
         texture_path = texture_info
         if isinstance(texture_info, dict):
             texture_path = texture_info.get('atlas')
-
+        base_position = Vec3(*position)
+        # 論理Yはブロック上面。粒子中心はブロック中央へ合わせる。
+        base_position.y -= 0.5
         for _ in range(amount):
             particle = Entity(
                 model='quad',
                 color=self._random_pixel(texture_path, block_color),
-                position=block.position + Vec3(
+                position=base_position + Vec3(
                     random.uniform(-0.35, 0.35),
                     random.uniform(-0.35, 0.35),
                     random.uniform(-0.35, 0.35),
