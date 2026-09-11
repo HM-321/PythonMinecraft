@@ -737,18 +737,24 @@ class MinecraftBuildServer:
 
     def _block_overlaps_player(self, block_position, placing_session):
         block_x, block_y, block_z = block_position
-        for session in self.sessions.values():
-            if session is not placing_session:
-                player = session.state
-            else:
-                player = placing_session.state
+        # クライアント側block_overlaps()と同じ許容誤差を使う。
+        # 壁への微小な食い込みで壁上への設置を拒否しない。
+        horizontal_margin = 0.03
+        vertical_margin = 0.01
+        radius = max(0.0, PLAYER_RADIUS - horizontal_margin)
+
+        with self.sessions_lock:
+            sessions = list(self.sessions.values())
+
+        for session in sessions:
+            player = session.state
             overlaps = (
-                player['x'] - PLAYER_RADIUS < block_x + 0.5 and
-                player['x'] + PLAYER_RADIUS > block_x - 0.5 and
-                player['y'] < block_y and
-                player['y'] + PLAYER_HEIGHT > block_y - 1 and
-                player['z'] - PLAYER_RADIUS < block_z + 0.5 and
-                player['z'] + PLAYER_RADIUS > block_z - 0.5
+                player['x'] - radius < block_x + 0.5 and
+                player['x'] + radius > block_x - 0.5 and
+                player['y'] + vertical_margin < block_y and
+                player['y'] + PLAYER_HEIGHT - vertical_margin > block_y - 1 and
+                player['z'] - radius < block_z + 0.5 and
+                player['z'] + radius > block_z - 0.5
             )
             if overlaps:
                 return True

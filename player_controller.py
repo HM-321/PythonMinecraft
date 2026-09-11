@@ -34,13 +34,20 @@ class PlayerController:
 
     def block_overlaps(self, pos):
         p = self.entity
+
+        # 壁への微小な食い込みで、壁上への設置が拒否されないようにする。
+        # プレイヤー内部への設置は引き続き拒否する。
+        horizontal_margin = 0.03
+        vertical_margin = 0.01
+        radius = max(0.0, PLAYER_RADIUS - horizontal_margin)
+
         return (
-            p.x - PLAYER_RADIUS < pos.x + 0.5 and
-            p.x + PLAYER_RADIUS > pos.x - 0.5 and
-            p.y < pos.y and
-            p.y + PLAYER_HEIGHT > pos.y - 1 and
-            p.z - PLAYER_RADIUS < pos.z + 0.5 and
-            p.z + PLAYER_RADIUS > pos.z - 0.5
+            p.x - radius < pos.x + 0.5 and
+            p.x + radius > pos.x - 0.5 and
+            p.y + vertical_margin < pos.y and
+            p.y + PLAYER_HEIGHT - vertical_margin > pos.y - 1 and
+            p.z - radius < pos.z + 0.5 and
+            p.z + radius > pos.z - 0.5
         )
 
     def is_above_standing_block(self, pos):
