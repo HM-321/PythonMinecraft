@@ -26,6 +26,12 @@ class PlayerController:
         self.spawn_pos = spawn_pos
         self.sneaking = False
 
+        # 長押しによる自動再ジャンプだけを制限する。
+        # キーを離して再度押した場合は即座にジャンプできる。
+        self._jump_was_held = False
+        self._auto_jump_cooldown = 0.0
+        self._auto_jump_interval = 0.1
+
     def block_overlaps(self, pos):
         p = self.entity
         return (
@@ -176,6 +182,24 @@ class PlayerController:
         world = _world()
         dt = min(time.dt, 0.05)
 
+        self._auto_jump_cooldown = max(
+            0.0,
+            self._auto_jump_cooldown - dt,
+        )
+
+        # FalseからTrueになったフレームだけ「押した瞬間」。
+        jump_pressed = jump_input and not self._jump_was_held
+        self._jump_was_held = jump_input
+
+        # 連打は即時許可。長押しによる再ジャンプだけ間隔を空ける。
+        jump_allowed = (
+            jump_pressed
+            or (
+                jump_input
+                and self._auto_jump_cooldown <= 0.0
+            )
+        )
+
         if self.gravity_on:
             grounded = supporting_top(
                 world, p.x, p.y, p.z,
@@ -184,8 +208,15 @@ class PlayerController:
             if grounded is not None and self.velocity_y <= 0:
                 p.y = grounded
                 self.velocity_y = 0
-                if jump_input:
+                if jump_allowed:
                     self.velocity_y = JUMP_POWER
+
+                    # 押した瞬間のジャンプには実質的な待ち時間を設けない。
+                    # 長押ししたままの場合だけ次回の自動ジャンプを遅らせる。
+                    if not jump_pressed:
+                        self._auto_jump_cooldown = (
+                            self._auto_jump_interval
+                        )
 
             self.velocity_y -= GRAVITY * dt
             next_y, collided = sweep_vertical(
