@@ -365,6 +365,7 @@ class World:
                 self.remove_block_at(*entry[:3])
         for entry in placed:
             if len(entry) >= 4:
+                self.remove_block_at(*entry[:3])
                 self.place_block(*entry[:3], entry[3],
                     orientation=entry[4] if len(entry) > 4 else 'y')
         self._loading_world = False
