@@ -1,3 +1,11 @@
+import sys
+
+APP_ICON = (
+    "assets/MinecraftIcon.icns"
+    if sys.platform == "darwin"
+    else "assets/MinecraftIcon.ico"
+)
+
 # -*- mode: python ; coding: utf-8 -*-
 
 
@@ -5,7 +13,8 @@ a = Analysis(
     ['server.py'],
     pathex=[],
     binaries=[],
-    datas=[('Template.json', '.')],
+    datas=[
+        ("assets/icon.png", "assets"),('Template.json', '.')],
     hiddenimports=['tkinter', 'tkinter.messagebox'],
     hookspath=[],
     hooksconfig={},
@@ -32,6 +41,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=APP_ICON,
 )
 coll = COLLECT(
     exe,
@@ -44,7 +54,7 @@ coll = COLLECT(
 )
 app = BUNDLE(
     coll,
-    name='MinecraftBuildServer.app',
-    icon=None,
-    bundle_identifier=None,
+    name="MinecraftBuildServer.app",
+    icon="assets/MinecraftIcon.icns",
+    bundle_identifier="jp.pythonminecraft.server",
 )

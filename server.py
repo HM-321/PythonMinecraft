@@ -331,6 +331,22 @@ class MinecraftBuildServer:
             return
 
         root = tk.Tk()
+
+        # 通常起動とPyInstallerビルドの両方で管理画面へアイコンを設定する。
+        icon_path = RESOURCE_DIR / 'assets' / 'icon.png'
+        if not icon_path.exists():
+            icon_path = APP_DIR / 'assets' / 'icon.png'
+
+        if icon_path.exists():
+            try:
+                server_icon = tk.PhotoImage(file=str(icon_path))
+                root.iconphoto(True, server_icon)
+
+                # PhotoImageが破棄されないよう参照を保持する。
+                root._minecraftbuild_icon = server_icon
+            except tk.TclError as exc:
+                print(f'Could not load server icon: {exc}')
+
         root.title('MinecraftBuild Server')
         root.geometry('560x620')
         root.minsize(520, 560)

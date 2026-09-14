@@ -1,3 +1,11 @@
+import sys
+
+APP_ICON = (
+    "assets/MinecraftIcon.icns"
+    if sys.platform == "darwin"
+    else "assets/MinecraftIcon.ico"
+)
+
 # -*- mode: python ; coding: utf-8 -*-
 
 from PyInstaller.utils.hooks import collect_all
@@ -17,6 +25,7 @@ a = Analysis(
         + direct_binaries
     ),
     datas=[
+        ("assets/icon.png", "assets"),
         ("Template.json", "."),
         ("textures", "textures"),
         ("sounds", "sounds"),
@@ -62,6 +71,7 @@ exe = EXE(
     target_arch="arm64",
     codesign_identity=None,
     entitlements_file=None,
+    icon=APP_ICON,
 )
 
 coll = COLLECT(
@@ -77,6 +87,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="MinecraftBuild.app",
-    icon=None,
-    bundle_identifier=None,
+    icon="assets/MinecraftIcon.icns",
+    bundle_identifier="jp.pythonminecraft.game",
 )

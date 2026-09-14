@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ursina import *
 from ursina import application
-from panda3d.core import WindowProperties
+from panda3d.core import WindowProperties, loadPrcFileData
 
 from app_runtime import install_crash_logging
 from settings import settings
@@ -40,6 +40,16 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 os.chdir(RESOURCE_DIR)
 application.asset_folder = Path(RESOURCE_DIR)
 write_resource_log()
+
+from pathlib import Path
+from panda3d.core import loadPrcFileData
+
+ICON_PATH = Path(__file__).resolve().parent / "assets" / "icon.png"
+
+loadPrcFileData(
+    "",
+    f"icon-filename {ICON_PATH.as_posix()}",
+)
 
 
 # vsyncとソフトウェアFPSリミッター(_limit_fps)を同時に有効にすると、
