@@ -4,7 +4,7 @@ from ursina import Entity, color, destroy
 
 
 PLAYER_COLORS = (
-    color.azure,
+    color.rgb(24, 82, 126),
     color.orange,
     color.lime,
     color.magenta,
@@ -20,17 +20,35 @@ class RemotePlayer:
         player_color = PLAYER_COLORS[(int(player_id) - 1) % len(PLAYER_COLORS)]
 
         self.body = Entity(parent=self.root, model='cube', color=player_color,
-                           scale=(0.6, 0.9, 0.35), y=1.25)
+                           scale=(0.45, 0.675, 0.225), y=1.0125)
         self.head = Entity(parent=self.root, model='cube', color=color.rgb(240, 190, 145),
-                           scale=(0.65, 0.65, 0.65), y=2.05)
+                           scale=(0.45, 0.45, 0.45), y=1.575)
+        hair_color = color.rgb(64, 38, 24)
+        face_color = color.rgb(24, 18, 16)
+        self.hair = Entity(parent=self.head, model='cube', color=hair_color,
+                   scale=(1.1, 0.2, 1.1), y=0.44)
+        self.left_hair = Entity(parent=self.head, model='cube', color=hair_color,
+                    scale=(0.18, 0.55, 0.22), x=-0.45, y=0.16)
+        self.right_hair = Entity(parent=self.head, model='cube', color=hair_color,
+                     scale=(0.18, 0.55, 0.22), x=0.45, y=0.16)
+        self.left_eye = Entity(parent=self.head, model='cube', color=face_color,
+                       scale=(0.13, 0.13, 0.04), x=-0.2, y=0.08, z=0.51)
+        self.right_eye = Entity(parent=self.head, model='cube', color=face_color,
+                    scale=(0.13, 0.13, 0.04), x=0.2, y=0.08, z=0.51)
+        self.mouth_left = Entity(parent=self.head, model='cube', color=face_color,
+                     scale=(0.16, 0.06, 0.04), x=-0.09,
+                     y=-0.15, z=0.51, rotation_z=-25)
+        self.mouth_right = Entity(parent=self.head, model='cube', color=face_color,
+                      scale=(0.16, 0.06, 0.04), x=0.09,
+                      y=-0.15, z=0.51, rotation_z=25)
         self.left_arm = Entity(parent=self.root, model='cube', color=player_color,
-                               scale=(0.22, 0.85, 0.25), x=-0.43, y=1.25)
+                               scale=(0.225, 0.675, 0.225), x=-0.3375, y=1.0125)
         self.right_arm = Entity(parent=self.root, model='cube', color=player_color,
-                                scale=(0.22, 0.85, 0.25), x=0.43, y=1.25)
+                                scale=(0.225, 0.675, 0.225), x=0.3375, y=1.0125)
         self.left_leg = Entity(parent=self.root, model='cube', color=color.dark_gray,
-                               scale=(0.25, 0.85, 0.28), x=-0.18, y=0.45)
+                               scale=(0.225, 0.675, 0.225), x=-0.1125, y=0.3375)
         self.right_leg = Entity(parent=self.root, model='cube', color=color.dark_gray,
-                                scale=(0.25, 0.85, 0.28), x=0.18, y=0.45)
+                                scale=(0.225, 0.675, 0.225), x=0.1125, y=0.3375)
         self._parts = (self.body, self.head, self.left_arm, self.right_arm,
                        self.left_leg, self.right_leg)
         self._walk_time = 0.0
@@ -44,37 +62,37 @@ class RemotePlayer:
         self._sneaking = sneaking
 
         if sneaking:
-            self.body.scale = (0.6, 0.62, 0.35)
-            self.body.y = 1.05
+            self.body.scale = (0.45, 0.5, 0.225)
+            self.body.y = 0.925
 
-            self.head.scale = (0.65, 0.65, 0.65)
-            self.head.y = 1.65
+            self.head.scale = (0.45, 0.45, 0.45)
+            self.head.y = 1.4
 
-            self.left_arm.scale = (0.22, 0.66, 0.25)
-            self.left_arm.y = 1.05
-            self.right_arm.scale = (0.22, 0.66, 0.25)
-            self.right_arm.y = 1.05
+            self.left_arm.scale = (0.225, 0.56, 0.225)
+            self.left_arm.y = 0.925
+            self.right_arm.scale = (0.225, 0.56, 0.225)
+            self.right_arm.y = 0.925
 
-            self.left_leg.scale = (0.25, 0.72, 0.28)
-            self.left_leg.y = 0.36
-            self.right_leg.scale = (0.25, 0.72, 0.28)
-            self.right_leg.y = 0.36
+            self.left_leg.scale = (0.225, 0.62, 0.225)
+            self.left_leg.y = 0.31
+            self.right_leg.scale = (0.225, 0.62, 0.225)
+            self.right_leg.y = 0.31
         else:
-            self.body.scale = (0.6, 0.9, 0.35)
-            self.body.y = 1.25
+            self.body.scale = (0.45, 0.675, 0.225)
+            self.body.y = 1.0125
 
-            self.head.scale = (0.65, 0.65, 0.65)
-            self.head.y = 2.05
+            self.head.scale = (0.45, 0.45, 0.45)
+            self.head.y = 1.575
 
-            self.left_arm.scale = (0.22, 0.85, 0.25)
-            self.left_arm.y = 1.25
-            self.right_arm.scale = (0.22, 0.85, 0.25)
-            self.right_arm.y = 1.25
+            self.left_arm.scale = (0.225, 0.675, 0.225)
+            self.left_arm.y = 1.0125
+            self.right_arm.scale = (0.225, 0.675, 0.225)
+            self.right_arm.y = 1.0125
 
-            self.left_leg.scale = (0.25, 0.85, 0.28)
-            self.left_leg.y = 0.45
-            self.right_leg.scale = (0.25, 0.85, 0.28)
-            self.right_leg.y = 0.45
+            self.left_leg.scale = (0.225, 0.675, 0.225)
+            self.left_leg.y = 0.3375
+            self.right_leg.scale = (0.225, 0.675, 0.225)
+            self.right_leg.y = 0.3375
 
     def update(self, position, yaw=0, pitch=0, moving=False, sneaking=False, dt=0):
         self.root.position = position
