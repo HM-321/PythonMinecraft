@@ -39,6 +39,8 @@ class OptionsScreen:
         y -= step
         self._make_slider('Render Dist', 'render_distance', 10, 40, y, x_offset=-0.45)
         y -= step
+        self.sky_toggle = self._make_toggle('Sky', 'sky_style', y, x_offset=-0.45)
+        y -= step
         self._make_slider('BGM Vol', 'bgm_volume', 0.0, 1.0, y, x_offset=-0.45)
         y -= step
         self._make_slider('SE Vol', 'se_volume', 0.0, 1.0, y, x_offset=-0.45)
@@ -116,6 +118,32 @@ class OptionsScreen:
                         position=(x_offset + 0.16, y), origin=(-0.5, 0),
                         scale=0.65, color=color.light_gray)
         sl._val_text = val_text
+
+    def _make_toggle(self, label, key, y, x_offset=0):
+        Text(parent=self.root, text=label,
+             position=(x_offset - 0.16, y), origin=(-0.5, 0),
+             scale=0.7, color=color.white)
+        button = Button(
+            parent=self.root,
+            text=self._sky_label(settings.get(key)),
+            position=(x_offset + 0.08, y),
+            scale=(0.15, 0.045),
+            color=color.dark_gray,
+            on_click=lambda: self._toggle_sky(button, key),
+        )
+        self.sliders[key] = button
+        return button
+
+    @staticmethod
+    def _sky_label(value):
+        return 'REALISTIC' if value == 'realistic' else 'CLASSIC'
+
+    def _toggle_sky(self, button, key):
+        current = self.pending.get(key, settings.get(key))
+        value = 'classic' if current == 'realistic' else 'realistic'
+        self.pending[key] = value
+        button.text = self._sky_label(value)
+        button.color = color.dark_gray
 
     def _make_key_bind(self, label, key, y, x_offset=0):
         Text(parent=self.root, text=label,

@@ -62,8 +62,8 @@ class RemotePlayer:
         self._sneaking = sneaking
 
         if sneaking:
-            self.body.scale = (0.45, 0.5, 0.225)
-            self.body.y = 0.925
+            self.body.scale = (0.45, 0.56, 0.225)
+            self.body.y = 0.9
 
             self.head.scale = (0.45, 0.45, 0.45)
             self.head.y = 1.4

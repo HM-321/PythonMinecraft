@@ -7,6 +7,7 @@ DEFAULT_SETTINGS = {
     'controller_sensitivity': 300,
     'fov': 90,
     'render_distance': 20,
+    'sky_style': 'classic',
     'bgm_volume': 0.3,
     'se_volume': 0.5,
     'max_fps': 60,

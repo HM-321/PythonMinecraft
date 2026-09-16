@@ -66,6 +66,69 @@ app = Ursina()
 application.asset_folder = Path(RESOURCE_DIR)
 window.color = color.azure
 
+_realistic_sky = None
+_sky_bottom = None
+_sky_top = None
+_sky_in_game = False
+SKY_TEXTURE = Path(RESOURCE_DIR) / 'textures' / 'sky.png'
+
+
+def _set_sky_style(style):
+    """Sky()の自然な空と従来の単色背景を切り替える。"""
+    global _realistic_sky, _sky_bottom, _sky_top
+    if _realistic_sky is None and SKY_TEXTURE.is_file():
+        from ursina.prefabs.sky import Sky
+        from ursina.shaders import unlit_shader
+
+        _realistic_sky = Sky(texture='textures/sky.png', enabled=False)
+        _sky_bottom = Entity(
+            parent=scene,
+            model='quad',
+            color=color.rgb(92, 166, 222),
+            scale=(2000, 2000),
+            rotation_x=90,
+            shader=unlit_shader,
+            enabled=False,
+        )
+        _sky_top = Entity(
+            parent=scene,
+            model='quad',
+            color=color.rgb(88, 164, 232),
+            scale=(2000, 2000),
+            rotation_x=90,
+            shader=unlit_shader,
+            enabled=False,
+        )
+
+    realistic = style == 'realistic'
+    if _realistic_sky is not None:
+        _realistic_sky.enabled = realistic and _sky_in_game
+        if _sky_bottom is not None:
+            _sky_bottom.enabled = realistic and _sky_in_game
+        if _sky_top is not None:
+            _sky_top.enabled = realistic and _sky_in_game
+    window.color = (
+        color.rgb(174, 215, 240)
+        if realistic and _sky_in_game
+        else color.azure
+    )
+
+
+def _set_sky_in_game(enabled):
+    global _sky_in_game
+    _sky_in_game = enabled
+    _set_sky_style(settings.get('sky_style'))
+
+
+def _update_sky_bottom():
+    if _sky_bottom is not None and _sky_bottom.enabled:
+        _sky_bottom.position = camera.world_position + Vec3(0, -100, 0)
+    if _sky_top is not None and _sky_top.enabled:
+        _sky_top.position = camera.world_position + Vec3(0, 100, 0)
+
+
+_set_sky_style(settings.get('sky_style'))
+
 
 from panda3d.core import WindowProperties, getModelPath
 
@@ -194,6 +257,7 @@ game = {
 
 def _apply_runtime_settings():
     camera.fov = settings.get('fov')
+    _set_sky_style(settings.get('sky_style'))
 
     player = game.get('player')
     world = game.get('world')
@@ -214,6 +278,7 @@ def _apply_runtime_settings():
 
 
 def start_game(save_path, is_new, use_template=False):
+    _set_sky_in_game(True)
     sound_mgr.stop_bgm()
     props = WindowProperties()
     props.setCursorHidden(True)
@@ -276,6 +341,7 @@ def _populate_network_world(world, payload):
 
 
 def _start_network_game(snapshot):
+    _set_sky_in_game(True)
     client = game['network_client']
     player_id = snapshot['player_id']
     own_player = next((p for p in snapshot.get('players', [])
@@ -439,6 +505,7 @@ def _resume_game():
 
 
 def _save_and_quit():
+    _set_sky_in_game(False)
     network_client = game.get('network_client')
     was_network_game = network_client is not None
     if network_client:
@@ -710,6 +777,7 @@ def _profile_full_frame(python_total):
 
 
 def update():
+    _update_sky_bottom()
     _frame_wall_t0 = _pytime.perf_counter()
     _t0 = _pytime.perf_counter()
     block_particles.update()
