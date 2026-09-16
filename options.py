@@ -1,3 +1,4 @@
+# pyright: reportOptionalMemberAccess=false, reportAttributeAccessIssue=false
 from ursina import Entity, Text, Button, camera, color, destroy, Slider
 from settings import settings
 
@@ -93,7 +94,7 @@ class OptionsScreen:
         self._updater = Entity(parent=self.root)
         self._updater.update = self._monitor_controller
 
-    def _make_slider(self, label, key, min_v, max_v, y, x_offset=0):
+    def _make_slider(self, label, key, min_v, max_v, y, x_offset: float = 0.0):
         val = settings.get(key)
         if val is None:
             val = min_v
@@ -119,7 +120,7 @@ class OptionsScreen:
                         scale=0.65, color=color.light_gray)
         sl._val_text = val_text
 
-    def _make_toggle(self, label, key, y, x_offset=0):
+    def _make_toggle(self, label, key, y, x_offset: float = 0.0):
         Text(parent=self.root, text=label,
              position=(x_offset - 0.16, y), origin=(-0.5, 0),
              scale=0.7, color=color.white)
@@ -145,7 +146,7 @@ class OptionsScreen:
         button.text = self._sky_label(value)
         button.color = color.dark_gray
 
-    def _make_key_bind(self, label, key, y, x_offset=0):
+    def _make_key_bind(self, label, key, y, x_offset: float = 0.0):
         Text(parent=self.root, text=label,
             position=(x_offset - 0.16, y), origin=(-0.5, 0),
             scale=0.7, color=color.white)
@@ -160,7 +161,7 @@ class OptionsScreen:
         )
         btn.on_click = lambda: self._start_key_capture(key, btn)
         self.sliders[key] = btn
-    def _make_ctrl_bind(self, label, key, y, x_offset=0):
+    def _make_ctrl_bind(self, label, key, y, x_offset: float = 0.0):
         Text(parent=self.root, text=label,
             position=(x_offset - 0.16, y), origin=(-0.5, 0),
             scale=0.7, color=color.white)

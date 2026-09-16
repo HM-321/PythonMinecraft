@@ -1,3 +1,4 @@
+# pyright: reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportIndexIssue=false, reportWildcardImportFromLibrary=false
 import os
 import sys
 import shutil
