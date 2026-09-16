@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Any
 from config import SETTINGS_PATH
 
 DEFAULT_SETTINGS = {
@@ -34,10 +35,10 @@ class Settings:
         self.data = dict(DEFAULT_SETTINGS)
         self.load()
 
-    def get(self, key):
+    def get(self, key: str) -> Any:
         return self.data.get(key, DEFAULT_SETTINGS.get(key))
 
-    def set(self, key, value):
+    def set(self, key: str, value: Any) -> None:
         self.data[key] = value
 
     def load(self):

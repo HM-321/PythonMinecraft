@@ -3,8 +3,9 @@ import sys
 import shutil
 import time as _pytime
 from pathlib import Path
+from typing import Any, cast
 
-from ursina import *
+from ursina import *  # pyright: ignore[reportWildcardImportFromLibrary]
 from ursina import application
 from panda3d.core import WindowProperties, loadPrcFileData
 
@@ -65,6 +66,9 @@ window.vsync = False
 app = Ursina()
 application.asset_folder = Path(RESOURCE_DIR)
 window.color = color.azure
+app_window = cast(Any, app.win)
+ursina_time = cast(Any, time)
+ursina_held_keys = cast(Any, held_keys)
 
 _realistic_sky = None
 _sky_bottom = None
@@ -282,7 +286,7 @@ def start_game(save_path, is_new, use_template=False):
     sound_mgr.stop_bgm()
     props = WindowProperties()
     props.setCursorHidden(True)
-    app.win.requestProperties(props)
+    app_window.requestProperties(props)
     mouse.visible = False
 
     game['crosshair'] = Crosshair()
@@ -354,7 +358,7 @@ def _start_network_game(snapshot):
     sound_mgr.stop_bgm()
     props = WindowProperties()
     props.setCursorHidden(True)
-    app.win.requestProperties(props)
+    app_window.requestProperties(props)
     mouse.visible = False
 
     game['crosshair'] = Crosshair()
@@ -399,7 +403,7 @@ def _update_remote_player(data):
         pitch=data.get('pitch', 0),
         moving=data.get('moving', False),
         sneaking=data.get('sneaking', False),
-        dt=time.dt,
+        dt=ursina_time.dt,
     )
 
 
@@ -530,7 +534,7 @@ def _save_and_quit():
 
     props = WindowProperties()
     props.setCursorHidden(False)
-    app.win.requestProperties(props)
+    app_window.requestProperties(props)
     mouse.visible = True
     mouse.locked = False
     camera.parent = scene
@@ -660,7 +664,7 @@ def _take_screenshot():
         e.enabled = False
 
     def _do():
-        app.win.saveScreenshot(path)
+        app_window.saveScreenshot(path)
         print(f'screenshot: {path}')
         for e in hide_targets:
             e.enabled = True
@@ -713,13 +717,13 @@ invoke(_show_title, delay=0.3)
 
 
 def _center():
-    w = app.win.getProperties().getXSize()
-    h = app.win.getProperties().getYSize()
+    w = app_window.getProperties().getXSize()
+    h = app_window.getProperties().getYSize()
     return w // 2, h // 2
 
 
 def _update_window_focus():
-    focused = app.win.getProperties().getForeground()
+    focused = app_window.getProperties().getForeground()
     if focused == game['window_focused']:
         return
 
@@ -801,7 +805,7 @@ def update():
     _t0 = _pytime.perf_counter()
     controller.update()
     _t_controller = _pytime.perf_counter() - _t0
-    game['esc_cd'] = max(0, game['esc_cd'] - time.dt)
+    game['esc_cd'] = max(0, game['esc_cd'] - ursina_time.dt)
 
     if game['paused']:
         _profile_full_frame(_t_particles + _t_network + _t_sand + _t_controller)
@@ -810,20 +814,20 @@ def update():
 
     cx, cy = _center()
     if game['first_frame']:
-        app.win.movePointer(0, cx, cy)
+        app_window.movePointer(0, cx, cy)
         game['first_frame'] = False
         _profile_full_frame(_t_particles + _t_network + _t_sand + _t_controller)
         _limit_fps()
         return
 
     # ===== マウス視点 =====
-    md = app.win.getPointer(0)
+    md = app_window.getPointer(0)
     dx = md.getX() - cx
     dy = md.getY() - cy
 
     player = game['player']
     player.update_view(dx, dy)
-    app.win.movePointer(0, cx, cy)
+    app_window.movePointer(0, cx, cy)
 
     _t_place_break = 0.0
     if controller.is_connected():
@@ -833,8 +837,8 @@ def update():
         look_y = controller.look_y()
         if look_x != 0 or look_y != 0:
             sens = settings.get('controller_sensitivity')
-            player.yaw += look_x * sens * time.dt
-            player.pitch += look_y * sens * time.dt
+            player.yaw += look_x * sens * ursina_time.dt
+            player.pitch += look_y * sens * ursina_time.dt
             player.pitch = max(-90, min(90, player.pitch))
             player.entity.rotation_y = player.yaw
             camera.rotation_x = player.pitch
@@ -870,12 +874,12 @@ def update():
                 _try_break_block()
                 _t_place_break = _pytime.perf_counter() - _t0
 
-    if held_keys['left mouse'] and game['click_cd'] <= 0:
+    if ursina_held_keys['left mouse'] and game['click_cd'] <= 0:
         game['click_cd'] = CLICK_INTERVAL
         _t0 = _pytime.perf_counter()
         _try_break_block()
         _t_place_break += _pytime.perf_counter() - _t0
-    elif held_keys['right mouse'] and game['click_cd'] <= 0:
+    elif ursina_held_keys['right mouse'] and game['click_cd'] <= 0:
         game['click_cd'] = CLICK_INTERVAL
         _t0 = _pytime.perf_counter()
         _try_place_block()
@@ -883,17 +887,17 @@ def update():
 
     # ===== 通常のtick処理 =====
     _t0 = _pytime.perf_counter()
-    player.tick(time.dt)
+    player.tick(ursina_time.dt)
     _t_tick = _pytime.perf_counter() - _t0
-    game['click_cd'] = max(0, game['click_cd'] - time.dt)
-    game['scroll_cd'] = max(0, game['scroll_cd'] - time.dt)
+    game['click_cd'] = max(0, game['click_cd'] - ursina_time.dt)
+    game['scroll_cd'] = max(0, game['scroll_cd'] - ursina_time.dt)
 
     _t0 = _pytime.perf_counter()
     player.update_movement()
     _t_movement = _pytime.perf_counter() - _t0
 
     if game.get('network_client'):
-        game['network_state_cd'] -= time.dt
+        game['network_state_cd'] -= ursina_time.dt
         if game['network_state_cd'] <= 0:
             game['network_state_cd'] = 0.05
             try:
@@ -914,7 +918,7 @@ def update():
     # ===== 選択枠 =====
     # 選択枠は30Hzで十分。毎フレームのraycastを削減する。
     _t0 = _pytime.perf_counter()
-    game['selection_timer'] -= time.dt
+    game['selection_timer'] -= ursina_time.dt
     if game['selection_timer'] <= 0:
         game['selection_timer'] = 1 / 30
         hit = voxel_cast(
@@ -949,7 +953,7 @@ def update():
     # 全ブロック走査を5フレームごとではなく最大4回/秒に抑える。
     # 高所・低所ではY距離も含め、遠い地面を描画対象から外す。
     _t0 = _pytime.perf_counter()
-    game['cull_timer'] -= time.dt
+    game['cull_timer'] -= ursina_time.dt
     current_position = (player.entity.x, player.entity.y, player.entity.z)
     last_position = game.get('last_cull_position')
     moved_enough = (
@@ -980,7 +984,7 @@ def update():
     )
 
     game['debug'].update(
-        time.dt,
+        ursina_time.dt,
         game['player'],
         game['hotbar'],
         game['world'],
@@ -1027,7 +1031,7 @@ def input(key):
 
     # Ctrl + Alt + F5 で再起動
     if key == 'f5':
-        if held_keys['left control'] and held_keys['left alt']:
+        if ursina_held_keys['left control'] and ursina_held_keys['left alt']:
             _reload_app()
             return
 
@@ -1042,7 +1046,7 @@ def input(key):
 
     if key == 'g' and (
         game.get('debug_key_held', False)
-        or held_keys[key_debug]
+        or ursina_held_keys[key_debug]
     ):
         game['chunk_debug'].toggle()
         return
