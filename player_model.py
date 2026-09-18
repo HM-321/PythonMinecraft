@@ -41,14 +41,42 @@ class RemotePlayer:
         self.mouth_right = Entity(parent=self.head, model='cube', color=face_color,
                       scale=(0.16, 0.06, 0.04), x=0.09,
                       y=-0.15, z=0.51, rotation_z=25)
-        self.left_arm = Entity(parent=self.root, model='cube', color=player_color,
-                               scale=(0.225, 0.675, 0.225), x=-0.3375, y=1.0125)
-        self.right_arm = Entity(parent=self.root, model='cube', color=player_color,
-                                scale=(0.225, 0.675, 0.225), x=0.3375, y=1.0125)
-        self.left_leg = Entity(parent=self.root, model='cube', color=color.dark_gray,
-                               scale=(0.225, 0.675, 0.225), x=-0.1125, y=0.3375)
-        self.right_leg = Entity(parent=self.root, model='cube', color=color.dark_gray,
-                                scale=(0.225, 0.675, 0.225), x=0.1125, y=0.3375)
+        self.left_arm = Entity(
+            parent=self.root,
+            model='cube',
+            color=player_color,
+            scale=(0.225, 0.675, 0.225),
+            origin_y=0.5,
+            x=-0.3375,
+            y=1.35,
+        )
+        self.right_arm = Entity(
+            parent=self.root,
+            model='cube',
+            color=player_color,
+            scale=(0.225, 0.675, 0.225),
+            origin_y=0.5,
+            x=0.3375,
+            y=1.35,
+        )
+        self.left_leg = Entity(
+            parent=self.root,
+            model='cube',
+            color=color.dark_gray,
+            scale=(0.225, 0.675, 0.225),
+            origin_y=0.5,
+            x=-0.1125,
+            y=0.675,
+        )
+        self.right_leg = Entity(
+            parent=self.root,
+            model='cube',
+            color=color.dark_gray,
+            scale=(0.225, 0.675, 0.225),
+            origin_y=0.5,
+            x=0.1125,
+            y=0.675,
+        )
         self._parts = (self.body, self.head, self.left_arm, self.right_arm,
                        self.left_leg, self.right_leg)
         self._walk_time = 0.0
@@ -70,14 +98,14 @@ class RemotePlayer:
             self.head.y = 1.4
 
             self.left_arm.scale = (0.225, 0.56, 0.225)
-            self.left_arm.y = 0.925
+            self.left_arm.y = 1.18
             self.right_arm.scale = (0.225, 0.56, 0.225)
-            self.right_arm.y = 0.925
+            self.right_arm.y = 1.18
 
             self.left_leg.scale = (0.225, 0.62, 0.225)
-            self.left_leg.y = 0.31
+            self.left_leg.y = 0.62
             self.right_leg.scale = (0.225, 0.62, 0.225)
-            self.right_leg.y = 0.31
+            self.right_leg.y = 0.62
         else:
             self.body.scale = (0.45, 0.675, 0.225)
             self.body.y = 1.0125
@@ -86,14 +114,14 @@ class RemotePlayer:
             self.head.y = 1.575
 
             self.left_arm.scale = (0.225, 0.675, 0.225)
-            self.left_arm.y = 1.0125
+            self.left_arm.y = 1.35
             self.right_arm.scale = (0.225, 0.675, 0.225)
-            self.right_arm.y = 1.0125
+            self.right_arm.y = 1.35
 
             self.left_leg.scale = (0.225, 0.675, 0.225)
-            self.left_leg.y = 0.3375
+            self.left_leg.y = 0.675
             self.right_leg.scale = (0.225, 0.675, 0.225)
-            self.right_leg.y = 0.3375
+            self.right_leg.y = 0.675
 
     def update(self, position, yaw=0, pitch=0, moving=False, sneaking=False, dt=0):
         # 受信座標の差から水平速度を求め、歩行周期へ反映する。
@@ -118,10 +146,10 @@ class RemotePlayer:
             # スニーク中は周期と振り幅を抑える。
             speed_ratio = max(0.0, min(1.0, planar_speed / 5.5))
             if self._sneaking:
-                cycle_speed = 6.5 + 1.5 * speed_ratio
+                cycle_speed = 13.0 + 3.0 * speed_ratio
                 amplitude = 16.0
             else:
-                cycle_speed = 9.5 + 3.5 * speed_ratio
+                cycle_speed = 19.0 + 7.0 * speed_ratio
                 amplitude = 30.0 + 10.0 * speed_ratio
 
             self._walk_time += dt * cycle_speed
