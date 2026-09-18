@@ -146,10 +146,10 @@ class RemotePlayer:
             # スニーク中は周期と振り幅を抑える。
             speed_ratio = max(0.0, min(1.0, planar_speed / 5.5))
             if self._sneaking:
-                cycle_speed = 13.0 + 3.0 * speed_ratio
+                cycle_speed = 39.0 + 9.0 * speed_ratio
                 amplitude = 16.0
             else:
-                cycle_speed = 19.0 + 7.0 * speed_ratio
+                cycle_speed = 57.0 + 21.0 * speed_ratio
                 amplitude = 30.0 + 10.0 * speed_ratio
 
             self._walk_time += dt * cycle_speed
