@@ -35,6 +35,7 @@ from lan_host import EmbeddedLanHost, port_is_available
 from player_model import RemotePlayer
 from voxel_raycast import cast as voxel_cast
 from chunk_debug import ChunkBoundaryDisplay
+from spawn_resolver import validate_or_resolve_spawn
 
 
 install_crash_logging()
@@ -485,11 +486,66 @@ def _apply_network_block_change(message):
 
 def _reset_network_world(payload):
     world = game.get('world')
-    if not world:
+    player = game.get('player')
+
+    if not world or not player:
         return
+
+    # 再生成前の速度と落下状態を持ち込まない。
+    player.velocity_y = 0
+    player.velocity_h = Vec3(0, 0, 0)
+
     world.clear()
     _populate_network_world(world, payload)
     world.build_initial_meshes()
+
+    # サーバーが新ワールド上で決定した自分の座標を取得する。
+    player_id = game.get('network_player_id')
+    own_player = next(
+        (
+            entry
+            for entry in payload.get('players', [])
+            if entry.get('id') == player_id
+        ),
+        None,
+    )
+
+    if own_player is None:
+        requested_position = (0.0, 3.0, 0.0)
+        player.yaw = 0.0
+        player.pitch = 0.0
+        player.gravity_on = True
+    else:
+        requested_position = (
+            own_player.get('x', 0.0),
+            own_player.get('y', 3.0),
+            own_player.get('z', 0.0),
+        )
+        player.yaw = float(
+            own_player.get('yaw', 0.0)
+        )
+        player.pitch = float(
+            own_player.get('pitch', 0.0)
+        )
+        player.gravity_on = bool(
+            own_player.get('gravity_on', True)
+        )
+
+    # サーバー座標を採用し、クライアント側でも最終検証する。
+    player.entity.position = validate_or_resolve_spawn(
+        world,
+        requested_position,
+    )
+    player.spawn_pos = tuple(player.entity.position)
+    player.entity.rotation_y = player.yaw
+    camera.rotation_x = player.pitch
+
+    player.velocity_y = 0
+    player.velocity_h = Vec3(0, 0, 0)
+
+    game['first_frame'] = True
+    game['cull_timer'] = 0.0
+    game['last_cull_position'] = None
 
 
 def _open_pause_menu():
