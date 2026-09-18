@@ -158,13 +158,9 @@ class RemotePlayer:
         else:
             target_offset = 0.0
 
-        turn_delta = (
-            target_offset - self._body_yaw_offset + 180.0
-        ) % 360.0 - 180.0
-        turn_blend = 1.0 - exp(-16.0 * max(0.0, dt))
-
-        self._body_yaw_offset += turn_delta * turn_blend
-        self.body_root.rotation_y = self._body_yaw_offset
+        # 移動方向が変わった瞬間に胴体と手足の向きを切り替える。
+        self._body_yaw_offset = target_offset
+        self.body_root.rotation_y = target_offset
 
         # 頭はbody_rootの子ではないため、視点方向のままになる。
         self._moving = bool(moving)
