@@ -147,10 +147,10 @@ class RemotePlayer:
             speed_ratio = max(0.0, min(1.0, planar_speed / 5.5))
             if self._sneaking:
                 cycle_speed = 39.0 + 9.0 * speed_ratio
-                amplitude = 16.0
+                amplitude = 40.0
             else:
                 cycle_speed = 57.0 + 21.0 * speed_ratio
-                amplitude = 30.0 + 10.0 * speed_ratio
+                amplitude = 75.0 + 25.0 * speed_ratio
 
             self._walk_time += dt * cycle_speed
             swing = sin(self._walk_time) * amplitude
