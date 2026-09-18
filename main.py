@@ -9,7 +9,7 @@ from ursina import *
 from ursina import application
 from panda3d.core import WindowProperties, loadPrcFileData
 
-from app_runtime import install_crash_logging
+from app_runtime import install_crash_logging, keep_macos_awake, release_macos_awake
 from settings import settings
 from config import (
     RESOURCE_DIR,
@@ -952,6 +952,10 @@ def update():
     _update_window_focus()
     _t0 = _pytime.perf_counter()
     controller.update()
+    if controller.is_connected():
+        keep_macos_awake()
+    else:
+        release_macos_awake()
     _t_controller = _pytime.perf_counter() - _t0
     game['esc_cd'] = max(0, game['esc_cd'] - time.dt)
 
