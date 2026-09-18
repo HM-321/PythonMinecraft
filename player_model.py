@@ -163,7 +163,16 @@ class RemotePlayer:
 
         # 胴体と手足だけを実際の移動方向へ向ける。
         if moving and movement_yaw is not None:
-            target_offset = (movement_yaw - float(yaw) + 180.0) % 360.0 - 180.0
+            movement_offset = (
+                movement_yaw - float(yaw) + 180.0
+            ) % 360.0 - 180.0
+
+            # 後退時は胴体を反転させず、前を向いたまま後ろへ進む。
+            # 後方135度より内側を後退として扱う。
+            if abs(movement_offset) > 135.0:
+                target_offset = 0.0
+            else:
+                target_offset = movement_offset
         else:
             target_offset = 0.0
 
