@@ -20,11 +20,12 @@ class RemotePlayer:
 
         # 頭は視点方向、胴体と手足は移動方向へ向ける。
         self.body_root = Entity(parent=self.root)
+        self.upper_body_root = Entity(parent=self.body_root, y=0.675)
 
         player_color = PLAYER_COLORS[(int(player_id) - 1) % len(PLAYER_COLORS)]
 
-        self.body = Entity(parent=self.body_root, model='cube', color=player_color,
-                           scale=(0.45, 0.675, 0.225), y=1.0125)
+        self.body = Entity(parent=self.upper_body_root, model='cube', color=player_color,
+                           scale=(0.45, 0.675, 0.225), y=0.3375)
         self.head = Entity(parent=self.root, model='cube', color=color.rgb(240, 190, 145),
                            scale=(0.45, 0.45, 0.45), y=1.575)
         hair_color = color.rgb(64, 38, 24)
@@ -55,22 +56,22 @@ class RemotePlayer:
                       scale=(0.16, 0.06, 0.04), x=0.09,
                       y=-0.15, z=0.51, rotation_z=25)
         self.left_arm = Entity(
-            parent=self.body_root,
+            parent=self.upper_body_root,
             model='cube',
             color=player_color,
             scale=(0.225, 0.675, 0.225),
             origin_y=0.5,
             x=-0.3375,
-            y=1.35,
+            y=0.675,
         )
         self.right_arm = Entity(
-            parent=self.body_root,
+            parent=self.upper_body_root,
             model='cube',
             color=player_color,
             scale=(0.225, 0.675, 0.225),
             origin_y=0.5,
             x=0.3375,
-            y=1.35,
+            y=0.675,
         )
         self.left_leg = Entity(
             parent=self.body_root,
@@ -103,42 +104,31 @@ class RemotePlayer:
             return
 
         self._sneaking = sneaking
-
-        # 見た目だけ前方へ乗り出す。rootやcolliderには触れない。
-        self.body_root.rotation_x = 22.0 if sneaking else 0.0
+        # 腰を支点に胴体と腕だけを前傾。脚と当たり判定は変更しない。
+        self.upper_body_root.rotation_x = 22.0 if sneaking else 0.0
 
         if sneaking:
             self.body.scale = (0.45, 0.56, 0.225)
-            self.body.y = 0.9
-
+            self.body.y = 0.28
+            # 頭は傾けず、傾いた胴体の上へ移動する。
             self.head.scale = (0.45, 0.45, 0.45)
-            self.head.y = 1.4
-
+            self.head.y = 1.43
+            self.head.z = 0.20
             self.left_arm.scale = (0.225, 0.56, 0.225)
-            self.left_arm.y = 1.18
+            self.left_arm.y = 0.56
             self.right_arm.scale = (0.225, 0.56, 0.225)
-            self.right_arm.y = 1.18
-
-            self.left_leg.scale = (0.225, 0.62, 0.225)
-            self.left_leg.y = 0.62
-            self.right_leg.scale = (0.225, 0.62, 0.225)
-            self.right_leg.y = 0.62
+            self.right_arm.y = 0.56
         else:
+            self.upper_body_root.rotation_x = 0.0
             self.body.scale = (0.45, 0.675, 0.225)
-            self.body.y = 1.0125
-
+            self.body.y = 0.3375
             self.head.scale = (0.45, 0.45, 0.45)
             self.head.y = 1.575
-
+            self.head.z = 0.0
             self.left_arm.scale = (0.225, 0.675, 0.225)
-            self.left_arm.y = 1.35
+            self.left_arm.y = 0.675
             self.right_arm.scale = (0.225, 0.675, 0.225)
-            self.right_arm.y = 1.35
-
-            self.left_leg.scale = (0.225, 0.675, 0.225)
-            self.left_leg.y = 0.675
-            self.right_leg.scale = (0.225, 0.675, 0.225)
-            self.right_leg.y = 0.675
+            self.right_arm.y = 0.675
 
     def update(self, position, yaw=0, pitch=0, moving=False, sneaking=False, dt=0):
         # 受信座標の差から水平速度を求め、歩行周期へ反映する。
