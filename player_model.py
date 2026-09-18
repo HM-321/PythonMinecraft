@@ -1,4 +1,4 @@
-from math import exp, sin
+from math import atan2, degrees, exp, sin
 
 from ursina import Entity, color, destroy
 
@@ -17,9 +17,13 @@ class RemotePlayer:
     def __init__(self, player_id, position=(0, 0, 0)):
         self.player_id = player_id
         self.root = Entity(position=position)
+
+        # 頭は視点方向、胴体と手足は移動方向へ向ける。
+        self.body_root = Entity(parent=self.root)
+
         player_color = PLAYER_COLORS[(int(player_id) - 1) % len(PLAYER_COLORS)]
 
-        self.body = Entity(parent=self.root, model='cube', color=player_color,
+        self.body = Entity(parent=self.body_root, model='cube', color=player_color,
                            scale=(0.45, 0.675, 0.225), y=1.0125)
         self.head = Entity(parent=self.root, model='cube', color=color.rgb(240, 190, 145),
                            scale=(0.45, 0.45, 0.45), y=1.575)
@@ -42,7 +46,7 @@ class RemotePlayer:
                       scale=(0.16, 0.06, 0.04), x=0.09,
                       y=-0.15, z=0.51, rotation_z=25)
         self.left_arm = Entity(
-            parent=self.root,
+            parent=self.body_root,
             model='cube',
             color=player_color,
             scale=(0.225, 0.675, 0.225),
@@ -51,7 +55,7 @@ class RemotePlayer:
             y=1.35,
         )
         self.right_arm = Entity(
-            parent=self.root,
+            parent=self.body_root,
             model='cube',
             color=player_color,
             scale=(0.225, 0.675, 0.225),
@@ -60,7 +64,7 @@ class RemotePlayer:
             y=1.35,
         )
         self.left_leg = Entity(
-            parent=self.root,
+            parent=self.body_root,
             model='cube',
             color=color.dark_gray,
             scale=(0.225, 0.675, 0.225),
@@ -69,7 +73,7 @@ class RemotePlayer:
             y=0.675,
         )
         self.right_leg = Entity(
-            parent=self.root,
+            parent=self.body_root,
             model='cube',
             color=color.dark_gray,
             scale=(0.225, 0.675, 0.225),
@@ -83,6 +87,7 @@ class RemotePlayer:
         self._moving = False
         self._sneaking = False
         self._last_position = None
+        self._body_yaw_offset = 0.0
 
     def _apply_sneak_visual(self, sneaking):
         if sneaking == self._sneaking:
@@ -127,17 +132,41 @@ class RemotePlayer:
         # 受信座標の差から水平速度を求め、歩行周期へ反映する。
         # テレポートやワールド再生成直後の大きな差分は無視する。
         planar_speed = 0.0
+        movement_yaw = None
+
         if self._last_position is not None and dt > 0:
             dx = float(position[0]) - float(self._last_position[0])
             dz = float(position[2]) - float(self._last_position[2])
             distance = (dx * dx + dz * dz) ** 0.5
+
             if distance < 2.0:
                 planar_speed = distance / dt
 
+                if distance > 0.0001:
+                    movement_yaw = degrees(atan2(dx, dz))
+
         self._last_position = tuple(position)
         self.root.position = position
+
+        # rootと頭はカメラの向きを維持する。
         self.root.rotation_y = yaw
         self.head.rotation_x = max(-90, min(90, pitch))
+
+        # 胴体と手足だけを実際の移動方向へ向ける。
+        if moving and movement_yaw is not None:
+            target_offset = (movement_yaw - float(yaw) + 180.0) % 360.0 - 180.0
+        else:
+            target_offset = 0.0
+
+        turn_delta = (
+            target_offset - self._body_yaw_offset + 180.0
+        ) % 360.0 - 180.0
+        turn_blend = 1.0 - exp(-16.0 * max(0.0, dt))
+
+        self._body_yaw_offset += turn_delta * turn_blend
+        self.body_root.rotation_y = self._body_yaw_offset
+
+        # 頭はbody_rootの子ではないため、視点方向のままになる。
         self._moving = bool(moving)
         self._apply_sneak_visual(bool(sneaking))
 
