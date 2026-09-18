@@ -1,4 +1,4 @@
-from math import sin
+from math import exp, sin
 
 from ursina import Entity, color, destroy
 
@@ -54,6 +54,7 @@ class RemotePlayer:
         self._walk_time = 0.0
         self._moving = False
         self._sneaking = False
+        self._last_position = None
 
     def _apply_sneak_visual(self, sneaking):
         if sneaking == self._sneaking:
@@ -95,23 +96,50 @@ class RemotePlayer:
             self.right_leg.y = 0.3375
 
     def update(self, position, yaw=0, pitch=0, moving=False, sneaking=False, dt=0):
+        # 受信座標の差から水平速度を求め、歩行周期へ反映する。
+        # テレポートやワールド再生成直後の大きな差分は無視する。
+        planar_speed = 0.0
+        if self._last_position is not None and dt > 0:
+            dx = float(position[0]) - float(self._last_position[0])
+            dz = float(position[2]) - float(self._last_position[2])
+            distance = (dx * dx + dz * dz) ** 0.5
+            if distance < 2.0:
+                planar_speed = distance / dt
+
+        self._last_position = tuple(position)
         self.root.position = position
         self.root.rotation_y = yaw
         self.head.rotation_x = max(-90, min(90, pitch))
-        self._moving = moving
+        self._moving = bool(moving)
         self._apply_sneak_visual(bool(sneaking))
-        if moving:
-            self._walk_time += dt * 9
-            swing = sin(self._walk_time) * 28
-            self.left_arm.rotation_x = swing
-            self.right_arm.rotation_x = -swing
-            self.left_leg.rotation_x = -swing
-            self.right_leg.rotation_x = swing
+
+        if self._moving:
+            # 通常歩行は約9 rad/s、速い移動では最大13 rad/sにする。
+            # スニーク中は周期と振り幅を抑える。
+            speed_ratio = max(0.0, min(1.0, planar_speed / 5.5))
+            if self._sneaking:
+                cycle_speed = 6.5 + 1.5 * speed_ratio
+                amplitude = 16.0
+            else:
+                cycle_speed = 9.5 + 3.5 * speed_ratio
+                amplitude = 30.0 + 10.0 * speed_ratio
+
+            self._walk_time += dt * cycle_speed
+            swing = sin(self._walk_time) * amplitude
+            targets = (swing, -swing, -swing, swing)
         else:
-            self.left_arm.rotation_x = 0
-            self.right_arm.rotation_x = 0
-            self.left_leg.rotation_x = 0
-            self.right_leg.rotation_x = 0
+            targets = (0.0, 0.0, 0.0, 0.0)
+
+        # FPSに依存せず、停止時も急に無姿勢へ戻らないよう補間する。
+        blend = 1.0 - exp(-14.0 * max(0.0, dt))
+        parts = (
+            self.left_arm,
+            self.right_arm,
+            self.left_leg,
+            self.right_leg,
+        )
+        for part, target in zip(parts, targets):
+            part.rotation_x += (target - part.rotation_x) * blend
 
     def destroy(self):
         destroy(self.root)
