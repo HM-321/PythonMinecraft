@@ -167,12 +167,16 @@ class RemotePlayer:
                 movement_yaw - float(yaw) + 180.0
             ) % 360.0 - 180.0
 
-            # 後退時は胴体を反転させず、前を向いたまま後ろへ進む。
-            # 後方135度より内側を後退として扱う。
-            if abs(movement_offset) > 135.0:
-                target_offset = 0.0
-            else:
+            # 後方へ進むほど胴体を正面へ戻す。
+            # 横90度から後方180度まで連続的に補間し、
+            # 後ろ斜め移動で判定境界をまたいだ際の急回転を防ぐ。
+            offset_abs = abs(movement_offset)
+            if offset_abs <= 90.0:
                 target_offset = movement_offset
+            else:
+                target_offset = (
+                    180.0 - offset_abs
+                ) * (1.0 if movement_offset >= 0.0 else -1.0)
         else:
             target_offset = 0.0
 
