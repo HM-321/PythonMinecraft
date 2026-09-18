@@ -29,6 +29,9 @@ class Controller:
         'f710', 'f310', 'f510', 'rumblepad',
         'switch pro', 'pro controller', 'nintendo'
     )
+    FACE_BUTTON_SWAP_CONTROLLER_NAMES = (
+        'switch pro', 'pro controller', 'nintendo'
+    )
 
     def __init__(self):
         self.connected = False
@@ -36,6 +39,7 @@ class Controller:
         self.dev = None
         self.gc = None  # pygame._sdl2.controller.Controller
         self._invert_y = False
+        self._swap_face_buttons = False
 
         self._prev_buttons = {}
         self._button_pressed_this_frame = {}
@@ -102,6 +106,10 @@ class Controller:
                     self.gc = gc
                     self.connected = True
                     name = gc.name or ''
+                    self._swap_face_buttons = any(
+                        n in name.lower()
+                        for n in self.FACE_BUTTON_SWAP_CONTROLLER_NAMES
+                    )
                     self._invert_y = any(
                         n in name.lower() for n in self.Y_INVERTED_CONTROLLER_NAMES
                     )
@@ -111,6 +119,7 @@ class Controller:
             print(f'No pygame controller: {e}')
         self.gc = None
         self._invert_y = False
+        self._swap_face_buttons = False
         self.connected = False
 
     def is_connected(self):
@@ -230,11 +239,19 @@ class Controller:
         def button(btn_id):
             return bool(self.gc.get_button(btn_id))
 
+        button_a = button(pygame.CONTROLLER_BUTTON_A)
+        button_b = button(pygame.CONTROLLER_BUTTON_B)
+        button_x = button(pygame.CONTROLLER_BUTTON_X)
+        button_y = button(pygame.CONTROLLER_BUTTON_Y)
+        if self._swap_face_buttons:
+            button_a, button_b = button_b, button_a
+            button_x, button_y = button_y, button_x
+
         state = {
-            'A': button(pygame.CONTROLLER_BUTTON_A),
-            'B': button(pygame.CONTROLLER_BUTTON_B),
-            'X': button(pygame.CONTROLLER_BUTTON_X),
-            'Y': button(pygame.CONTROLLER_BUTTON_Y),
+            'A': button_a,
+            'B': button_b,
+            'X': button_x,
+            'Y': button_y,
             'LB': button(pygame.CONTROLLER_BUTTON_LEFTSHOULDER),
             'RB': button(pygame.CONTROLLER_BUTTON_RIGHTSHOULDER),
             'dpad_up': button(pygame.CONTROLLER_BUTTON_DPAD_UP),
