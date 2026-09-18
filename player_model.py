@@ -104,6 +104,9 @@ class RemotePlayer:
 
         self._sneaking = sneaking
 
+        # 見た目だけ前方へ乗り出す。rootやcolliderには触れない。
+        self.body_root.rotation_x = 22.0 if sneaking else 0.0
+
         if sneaking:
             self.body.scale = (0.45, 0.56, 0.225)
             self.body.y = 0.9
