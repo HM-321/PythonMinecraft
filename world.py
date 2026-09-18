@@ -22,6 +22,7 @@ from terrain_generator import (
 LOD_CHUNK_SIZE = 10
 SAND_BLOCK_ID = 5
 TEMPLATE_GENERATOR_ID = 'template_v1'
+COORDINATE_SYSTEM = 'centered_v1'
 
 # ジャンプ設置などで同じチャンクへ連続して変更が入っている間は
 # LOD再構築（全ブロック走査＋Mesh再生成という重い処理）を遅らせる。
@@ -289,8 +290,10 @@ class World:
 
     def generate_flat(self):
         self.generator = 'flat_v1'
-        for z in range(WORLD_SIZE):
-            for x in range(WORLD_SIZE):
+        minimum = -(WORLD_SIZE // 2)
+        maximum = minimum + WORLD_SIZE
+        for z in range(minimum, maximum):
+            for x in range(minimum, maximum):
                 self.place_block(x, 0, z, 0, generated=True)
 
     def generate_grassland(self):
@@ -317,11 +320,19 @@ class World:
         with template_path.open(encoding='utf-8') as template_file:
             template = json.load(template_file)
         self.generator = TEMPLATE_GENERATOR_ID
+        template_blocks = template.get('blocks', [])
+        xs = [int(entry[0]) for entry in template_blocks if len(entry) >= 3]
+        zs = [int(entry[2]) for entry in template_blocks if len(entry) >= 3]
+        offset_x = -((min(xs) + max(xs) + 1) // 2) if xs else 0
+        offset_z = -((min(zs) + max(zs) + 1) // 2) if zs else 0
         self._loading_world = True
-        for entry in template.get('blocks', []):
+        for entry in template_blocks:
             if len(entry) >= 4:
                 self.place_block(
-                    *entry[:3], entry[3],
+                    int(entry[0]) + offset_x,
+                    int(entry[1]),
+                    int(entry[2]) + offset_z,
+                    entry[3],
                     orientation=entry[4] if len(entry) > 4 else 'y',
                     generated=True,
                 )
@@ -702,6 +713,7 @@ class World:
     def save(self, player_entity):
         data = {
             'version': SAVE_VERSION,
+            'coordinate_system': COORDINATE_SYSTEM,
             'seed': self.seed,
             'name': os.path.basename(self.save_path)[:-5],
             'last_played': datetime.now().isoformat(),
@@ -750,6 +762,36 @@ class World:
         generator = data.get('generator')
         placed = data.get('placed_blocks', [])
         removed = data.get('removed_blocks', [])
+
+        # Convert old 0-based saves exactly once. The next save records
+        # coordinate_system=centered_v1, so the conversion is not repeated.
+        if data.get('coordinate_system') != COORDINATE_SYSTEM:
+            if generator == TEMPLATE_GENERATOR_ID:
+                offset_x = offset_z = -30
+            elif generator in (GENERATOR_ID, TREE_GENERATOR_ID, 'flat_v1'):
+                offset_x = offset_z = -(WORLD_SIZE // 2)
+            else:
+                legacy_blocks = data.get('blocks', [])
+                xs = [int(entry[0]) for entry in legacy_blocks if len(entry) >= 3]
+                zs = [int(entry[2]) for entry in legacy_blocks if len(entry) >= 3]
+                offset_x = -((min(xs) + max(xs) + 1) // 2) if xs else 0
+                offset_z = -((min(zs) + max(zs) + 1) // 2) if zs else 0
+
+            def shift_entry(entry):
+                shifted = list(entry)
+                if len(shifted) >= 3:
+                    shifted[0] = int(shifted[0]) + offset_x
+                    shifted[2] = int(shifted[2]) + offset_z
+                return shifted
+
+            placed = [shift_entry(entry) for entry in placed]
+            removed = [shift_entry(entry) for entry in removed]
+            if 'blocks' in data:
+                data['blocks'] = [shift_entry(entry) for entry in data['blocks']]
+            if len(data.get('player', [])) >= 3:
+                data['player'][0] = float(data['player'][0]) + offset_x
+                data['player'][2] = float(data['player'][2]) + offset_z
+            data['coordinate_system'] = COORDINATE_SYSTEM
         if generator and self._generate_baseline(generator):
             self._apply_saved_differences(placed, removed)
         else:

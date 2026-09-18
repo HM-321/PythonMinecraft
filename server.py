@@ -162,7 +162,7 @@ class ServerWorld:
             'seed': self.seed,
             'name': self.path.stem,
             'last_played': time.strftime('%Y-%m-%dT%H:%M:%S'),
-            'player': [WORLD_SIZE / 2, 3, WORLD_SIZE / 2],
+            'player': [0.0, 3, 0.0],
             'generator': self.generator,
             'placed_blocks': [
                 [x, y, z, value[0], value[1]]
@@ -186,9 +186,9 @@ class ClientSession:
         self.send_lock = threading.Lock()
         self.alive = True
         self.state = {
-            'x': WORLD_SIZE / 2 + player_id * 2,
+            'x': 0.0 + player_id * 2,
             'y': 2,
-            'z': WORLD_SIZE / 2,
+            'z': 0.0,
             'yaw': 0,
             'pitch': 0,
             'gravity_on': True,
@@ -273,8 +273,8 @@ class MinecraftBuildServer:
 
     def _find_safe_spawn(self, player_id=1):
         """ワールド中央から外側へ探索して、安全な地表を返す。"""
-        center_x = int(WORLD_SIZE // 2) + (player_id - 1) * 2
-        center_z = int(WORLD_SIZE // 2)
+        center_x = int(0) + (player_id - 1) * 2
+        center_z = int(0)
         max_radius = max(WORLD_SIZE, 32)
 
         columns = {}
@@ -311,7 +311,7 @@ class MinecraftBuildServer:
                             )
 
         # 安全地点がない場合だけ、従来に近い中央上空へ退避する。
-        return (WORLD_SIZE / 2, 3.0, WORLD_SIZE / 2)
+        return (0.0, 3.0, 0.0)
 
     def _run_control_panel(self):
         try:

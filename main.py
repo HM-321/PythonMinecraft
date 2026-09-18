@@ -295,7 +295,7 @@ def start_game(save_path, is_new, use_template=False):
     game['selection'] = SelectionFrame()
     game['debug'] = DebugOverlay()
 
-    game['player'] = PlayerController((WORLD_SIZE / 2, 3, WORLD_SIZE / 2))
+    game['player'] = PlayerController((0.0, 3, 0.0))
     camera.fov = settings.get('fov')
     game['world'] = World(save_path)
     game['sand_physics'] = SandPhysics(game['world'], authoritative=True)
@@ -306,7 +306,7 @@ def start_game(save_path, is_new, use_template=False):
                 game['world'].generate_grassland()
         else:
             game['world'].generate_grassland()
-        center = WORLD_SIZE / 2
+        center = 0.0
         surface_y = game['world'].terrain_surface_y(center, center)
         game['player'].entity.position = (center, surface_y + 0.01, center)
         game['player'].yaw = 0
@@ -350,7 +350,7 @@ def _start_network_game(snapshot):
     player_id = snapshot['player_id']
     own_player = next((p for p in snapshot.get('players', [])
                        if p.get('id') == player_id), None)
-    spawn = (WORLD_SIZE / 2, 3, WORLD_SIZE / 2)
+    spawn = (0.0, 3, 0.0)
     if own_player:
         spawn = (own_player.get('x', spawn[0]), own_player.get('y', spawn[1]),
                  own_player.get('z', spawn[2]))

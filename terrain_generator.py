@@ -49,8 +49,8 @@ def surface_height(seed, x, z, world_size):
     height = BASE_HEIGHT + broad + detail
 
     # 中央付近を緩やかにして初期スポーンを安定させる。
-    center = (world_size - 1) / 2.0
-    distance = math.hypot(x - center, z - center)
+    # centered_v1: world origin is the terrain center.
+    distance = math.hypot(x, z)
     if distance < 7.0:
         blend = _smooth(distance / 7.0)
         height = BASE_HEIGHT + (height - BASE_HEIGHT) * blend
@@ -59,8 +59,10 @@ def surface_height(seed, x, z, world_size):
 
 
 def iter_grassland_blocks(seed, world_size):
-    for z in range(world_size):
-        for x in range(world_size):
+    minimum = -(world_size // 2)
+    maximum = minimum + world_size
+    for z in range(minimum, maximum):
+        for x in range(minimum, maximum):
             top = surface_height(seed, x, z, world_size)
             for y in range(BOTTOM_Y, top + 1):
                 if y == top:
@@ -75,11 +77,12 @@ def iter_grassland_blocks(seed, world_size):
 
 def _tree_candidates(seed, world_size):
     """決定論的な候補から、近すぎる木を除外して返す。"""
-    center = (world_size - 1) / 2.0
+    minimum = -(world_size // 2)
+    maximum = minimum + world_size
     candidates = []
-    for z in range(3, world_size - 3):
-        for x in range(3, world_size - 3):
-            if math.hypot(x - center, z - center) < 8.0:
+    for z in range(minimum + 3, maximum - 3):
+        for x in range(minimum + 3, maximum - 3):
+            if math.hypot(x, z) < 8.0:
                 continue
             chance = _hash01(seed ^ 0xD1B54A32D192ED03, x, z)
             if chance >= 0.012:
