@@ -35,6 +35,15 @@ class RemotePlayer:
                     scale=(0.18, 0.55, 0.22), x=-0.45, y=0.16)
         self.right_hair = Entity(parent=self.head, model='cube', color=hair_color,
                      scale=(0.18, 0.55, 0.22), x=0.45, y=0.16)
+        # 後頭部を覆って、遠くからでも頭の向きを判別しやすくする。
+        self.back_hair = Entity(
+            parent=self.head,
+            model='cube',
+            color=hair_color,
+            scale=(0.92, 0.72, 0.08),
+            y=0.04,
+            z=-0.51,
+        )
         self.left_eye = Entity(parent=self.head, model='cube', color=face_color,
                        scale=(0.13, 0.13, 0.04), x=-0.2, y=0.08, z=0.51)
         self.right_eye = Entity(parent=self.head, model='cube', color=face_color,
@@ -158,9 +167,14 @@ class RemotePlayer:
         else:
             target_offset = 0.0
 
-        # 移動方向が変わった瞬間に胴体と手足の向きを切り替える。
-        self._body_yaw_offset = target_offset
-        self.body_root.rotation_y = target_offset
+        turn_delta = (
+            target_offset - self._body_yaw_offset + 180.0
+        ) % 360.0 - 180.0
+        # 元の追従速度16.0の3倍。滑らかさを保ちつつ素早く向きを変える。
+        turn_blend = 1.0 - exp(-48.0 * max(0.0, dt))
+
+        self._body_yaw_offset += turn_delta * turn_blend
+        self.body_root.rotation_y = self._body_yaw_offset
 
         # 頭はbody_rootの子ではないため、視点方向のままになる。
         self._moving = bool(moving)
