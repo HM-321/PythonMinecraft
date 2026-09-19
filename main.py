@@ -441,6 +441,10 @@ def _process_network_events():
                     message.get('x'), message.get('y'), message.get('z'),
                     message.get('block_id', 5),
                 )
+        elif message_type == 'sand_fall_discard':
+            physics = game.get('sand_physics')
+            if physics:
+                physics.discard_remote(message.get('fall_id'))
         elif message_type == 'block_changed':
             _apply_network_block_change(message)
         elif message_type in ('error', 'disconnected'):

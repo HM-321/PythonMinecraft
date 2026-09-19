@@ -7,6 +7,7 @@ from config import (PLAYER_HEIGHT, PLAYER_RADIUS,
                     MOVE_SPEED, SNEAK_MUL, SPRINT_MUL, FRICTION,
                     GRAVITY, JUMP_POWER, SENSITIVITY, DOUBLE_TAP,
                     WORLD_SIZE)
+from spawn_resolver import find_safe_spawn
 
 
 class PlayerController:
@@ -258,27 +259,7 @@ class PlayerController:
         world = _world()
         if not world or not world.block_data_by_position:
             return self.spawn_pos
-
-        columns = {}
-        for x, y, z in world.block_data_by_position:
-            columns.setdefault((x, z), []).append(y)
-
-        origin_x = round(self.entity.x)
-        origin_z = round(self.entity.z)
-        max_radius = max(WORLD_SIZE, 32)
-        for radius in range(max_radius + 1):
-            for dx in range(-radius, radius + 1):
-                for dz in range(-radius, radius + 1):
-                    if max(abs(dx), abs(dz)) != radius:
-                        continue
-                    x = origin_x + dx
-                    z = origin_z + dz
-                    for ground_y in sorted(columns.get((x, z), ()), reverse=True):
-                        if not world.has_block(x, ground_y + 1, z) and not world.has_block(
-                            x, ground_y + 2, z
-                        ):
-                            return Vec3(x, ground_y, z)
-        return self.spawn_pos
+        return Vec3(*find_safe_spawn(world, self.entity.x, self.entity.z))
 
     def tick(self, dt):
         self.space_cd = max(0, self.space_cd - dt)

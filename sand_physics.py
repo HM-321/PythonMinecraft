@@ -91,6 +91,13 @@ class SandPhysics:
                 int(round(x)), int(round(y)), int(round(z)), int(block_id)
             )
 
+    def discard_remote(self, fall_id):
+        for index, item in enumerate(self.falling):
+            if item.get('id') == fall_id:
+                destroy(item['entity'])
+                self.falling.pop(index)
+                return
+
     def _start_unstable_sand(self):
         candidates = []
         for position in tuple(self.world.sand_positions):

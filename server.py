@@ -938,6 +938,7 @@ class MinecraftBuildServer:
 
     def _advance_falling_sand(self, dt, now):
         landed = []
+        discarded = []
         for fall_id, item in tuple(self.falling_sand.items()):
             item['velocity'] = min(
                 SAND_TERMINAL_SPEED,
@@ -947,6 +948,9 @@ class MinecraftBuildServer:
             landing_y = self._sand_landing_y(item['x'], item['z'], item['y'], next_y)
             if landing_y is None:
                 item['y'] = next_y
+                continue
+            if landing_y <= SAND_MIN_Y:
+                discarded.append(fall_id)
                 continue
             destination = (item['x'], landing_y, item['z'])
             if destination in self.world.blocks:
@@ -963,6 +967,11 @@ class MinecraftBuildServer:
                 'type': 'sand_fall_land', 'fall_id': fall_id,
                 'x': destination[0], 'y': destination[1], 'z': destination[2],
                 'block_id': SAND_BLOCK_ID, 'orientation': 'y',
+            })
+        for fall_id in discarded:
+            self.falling_sand.pop(fall_id, None)
+            self._broadcast({
+                'type': 'sand_fall_discard', 'fall_id': fall_id,
             })
 
     def _sand_landing_y(self, x, z, current_y, next_y):
