@@ -1,51 +1,53 @@
 # pyright: reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportIndexIssue=false, reportWildcardImportFromLibrary=false
 import os
 import sys
-import shutil
 import time as _pytime
+from datetime import UTC, datetime
 from pathlib import Path
 
+from panda3d.core import WindowProperties, getModelPath, loadPrcFileData
+from screeninfo import get_monitors
 from ursina import *
 from ursina import application
-from panda3d.core import WindowProperties, loadPrcFileData
 
-from app_runtime import install_crash_logging, keep_macos_awake, release_macos_awake
-from settings import settings
+import options
+from app_runtime import (
+    install_crash_logging,
+    keep_macos_awake,
+    release_macos_awake,
+)
+from block_particles import BlockParticles
+from block_types import BLOCK_TYPES
+from chunk_debug import ChunkBoundaryDisplay
 from config import (
+    CLICK_INTERVAL,
+    REACH,
     RESOURCE_DIR,
     SAVE_DIR,
-    TEMPLATE_PATH,
     SCREENSHOTS_DIR,
-    WORLD_SIZE,
-    REACH,
+    SCROLL_INTERVAL,
     write_resource_log,
 )
-from config import CLICK_INTERVAL, SCROLL_INTERVAL
-from block_types import BLOCK_TYPES
-from ui import Crosshair, Hotbar, SelectionFrame, DebugOverlay
-from world import World
-from player_controller import PlayerController
-from menu import WorldSelectMenu
-from sound_manager import SoundManager
 from controller import Controller
-from block_particles import BlockParticles
-from sand_physics import SandPhysics
-from multiplayer_client import MultiplayerClient
 from lan_host import EmbeddedLanHost, port_is_available
+from menu import WorldSelectMenu
+from multiplayer_client import MultiplayerClient
+from player_controller import PlayerController
 from player_model import RemotePlayer
-from voxel_raycast import cast as voxel_cast
-from chunk_debug import ChunkBoundaryDisplay
+from sand_physics import SandPhysics
+from settings import settings
+from sound_manager import SoundManager
 from spawn_resolver import validate_or_resolve_spawn
-
+from title import TitleScreen
+from ui import Crosshair, DebugOverlay, Hotbar, SelectionFrame
+from voxel_raycast import cast as voxel_cast
+from world import World
 
 install_crash_logging()
 os.makedirs(SAVE_DIR, exist_ok=True)
 os.chdir(RESOURCE_DIR)
 application.asset_folder = Path(RESOURCE_DIR)
 write_resource_log()
-
-from pathlib import Path
-from panda3d.core import loadPrcFileData
 
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "icon.png"
 
@@ -133,9 +135,6 @@ def _update_sky_bottom():
 _set_sky_style(settings.get('sky_style'))
 
 
-from panda3d.core import WindowProperties, getModelPath
-
-
 def resource_path(relative_path):
     if getattr(sys, 'frozen', False):
         if sys.platform == 'darwin':
@@ -171,7 +170,6 @@ Text.default_font = FONT_PATH.name
 
 print('Text.default_font =', Text.default_font)
 
-from screeninfo import get_monitors
 m = get_monitors()[0]
 
 window.borderless = True
@@ -183,7 +181,6 @@ sound_mgr.start_bgm()
 controller = Controller()
 block_particles = BlockParticles()
 
-import options
 options.sound_mgr = sound_mgr
 
 
@@ -204,9 +201,9 @@ def _limit_fps():
 class _SelectionTarget:
     """SelectionFrameへ座標だけ渡す軽量互換オブジェクト。"""
     __slots__ = (
-        'position',
         'block_position',
         'custom_mesh',
+        'position',
         'x',
         'y',
         'z',
@@ -347,7 +344,6 @@ def _populate_network_world(world, payload):
 
 def _start_network_game(snapshot):
     _set_sky_in_game(True)
-    client = game['network_client']
     player_id = snapshot['player_id']
     own_player = next((p for p in snapshot.get('players', [])
                        if p.get('id') == player_id), None)
@@ -418,9 +414,7 @@ def _process_network_events():
             _start_network_game(message)
         elif message_type == 'world_reset' and game.get('network_client'):
             _reset_network_world(message)
-        elif message_type == 'player_join':
-            _update_remote_player(message.get('player', {}))
-        elif message_type == 'player_state':
+        elif message_type in ('player_join', 'player_state'):
             _update_remote_player(message.get('player', {}))
         elif message_type == 'player_leave':
             remote = game['remote_players'].pop(message.get('id'), None)
@@ -636,7 +630,7 @@ def _open_to_lan():
         host.start()
         client = MultiplayerClient('127.0.0.1', DEFAULT_PORT)
         client.connect()
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         host.stop()
         print(f'LAN: failed to start: {exc}')
         return
@@ -727,8 +721,8 @@ def _reload_app():
     if game['started'] and game['world'] and not game.get('network_client'):
         try:
             game['world'].save(game['player'].entity)
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError) as error:
+            print(f'Failed to save before reload: {error}')
     if sound_mgr:
         sound_mgr.stop_bgm()
     os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -800,10 +794,12 @@ def _try_break_block():
 
 
 def _take_screenshot():
-    from datetime import datetime
     ss_dir = SCREENSHOTS_DIR
     os.makedirs(ss_dir, exist_ok=True)
-    filename = datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.png'
+    filename = (
+        datetime.now(UTC).astimezone().strftime('%Y-%m-%d_%H-%M-%S')
+        + '.png'
+    )
     path = os.path.join(ss_dir, filename)
 
     hide_targets = []
@@ -822,9 +818,6 @@ def _take_screenshot():
             e.enabled = True
 
     invoke(_do, delay=0.05)
-
-
-from title import TitleScreen
 
 
 def _show_title():
@@ -1016,19 +1009,17 @@ def update():
             _limit_fps()
             return
 
-        if controller.zl_held():
-            if game['click_cd'] <= 0:
-                game['click_cd'] = CLICK_INTERVAL
-                _t0 = _pytime.perf_counter()
-                _try_place_block()
-                _t_place_break = _pytime.perf_counter() - _t0
+        if controller.zl_held() and game['click_cd'] <= 0:
+            game['click_cd'] = CLICK_INTERVAL
+            _t0 = _pytime.perf_counter()
+            _try_place_block()
+            _t_place_break = _pytime.perf_counter() - _t0
 
-        if controller.zr_held():
-            if game['click_cd'] <= 0:
-                game['click_cd'] = CLICK_INTERVAL
-                _t0 = _pytime.perf_counter()
-                _try_break_block()
-                _t_place_break = _pytime.perf_counter() - _t0
+        if controller.zr_held() and game['click_cd'] <= 0:
+            game['click_cd'] = CLICK_INTERVAL
+            _t0 = _pytime.perf_counter()
+            _try_break_block()
+            _t_place_break = _pytime.perf_counter() - _t0
 
     if held_keys['left mouse'] and game['click_cd'] <= 0:
         game['click_cd'] = CLICK_INTERVAL
@@ -1091,9 +1082,6 @@ def update():
     # 今いるチャンクはLODを使わないので、建築中の強制再構築による
     # fps谷落ちを避けるため再構築対象から除外する。
     _t0 = _pytime.perf_counter()
-    protected_chunk_keys = game['world'].protected_chunk_keys(
-        player.entity.x, player.entity.z,
-    )
     game['world'].update_active_colliders(
         player.entity.x, player.entity.z,
     )
@@ -1123,7 +1111,6 @@ def update():
         game['last_cull_position'] = current_position
         px, py, pz = current_position
         render_distance = settings.get('render_distance')
-        horizontal_distance2 = render_distance * render_distance
         vertical_distance = max(12, render_distance)
 
         game['world'].update_visibility(
@@ -1186,10 +1173,13 @@ def input(key):
         return
 
     # Ctrl + Alt + F5 で再起動
-    if key == 'f5':
-        if held_keys['left control'] and held_keys['left alt']:
-            _reload_app()
-            return
+    if (
+        key == 'f5'
+        and held_keys['left control']
+        and held_keys['left alt']
+    ):
+        _reload_app()
+        return
 
     key_debug = settings.get('key_debug')
     key_screenshot = settings.get('key_screenshot')

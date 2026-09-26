@@ -1,9 +1,10 @@
 import os
+
 if os.environ.get('MINECRAFTBUILD_AUDIO') == '0':
     os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
 import pygame
-from config import SOUND_DIR
 
+from config import SOUND_DIR
 from settings import settings
 
 
@@ -21,6 +22,7 @@ class SoundManager:
             pygame.mixer.init()
         except (pygame.error, OSError) as exc:
             print(f'audio disabled: {exc}')
+            self.enabled = False
             return
 
         self.enabled = True
