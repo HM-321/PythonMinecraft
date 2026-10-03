@@ -1,4 +1,5 @@
 """Embedded LAN server runtime used by the game client."""
+
 from __future__ import annotations
 
 import shutil
@@ -23,7 +24,7 @@ class EmbeddedLanHost:
         self.port = int(port)
         self.max_players = int(max_players)
         self.server = MinecraftBuildServer(
-            '0.0.0.0', self.port, str(self.world_path), self.max_players
+            "0.0.0.0", self.port, str(self.world_path), self.max_players
         )
         self.thread = None
         self.error = None
@@ -31,7 +32,7 @@ class EmbeddedLanHost:
 
     @property
     def address(self):
-        return f'{get_local_ip()}:{self.port}'
+        return f"{get_local_ip()}:{self.port}"
 
     @property
     def player_count(self):
@@ -48,18 +49,18 @@ class EmbeddedLanHost:
 
     def status(self):
         return {
-            'address': self.address,
-            'players': self.player_count,
-            'max_players': self.max_players,
-            'seed': self.server.world.seed,
-            'generator': self.server.world.generator,
+            "address": self.address,
+            "players": self.player_count,
+            "max_players": self.max_players,
+            "seed": self.server.world.seed,
+            "generator": self.server.world.generator,
         }
 
     def start(self, timeout=3.0):
         self.error = None
         self.thread = threading.Thread(
             target=self._run,
-            name='EmbeddedLanServer',
+            name="EmbeddedLanServer",
             daemon=True,
         )
         self.thread.start()
@@ -71,7 +72,7 @@ class EmbeddedLanHost:
                 return
             time.sleep(0.02)
         self.stop()
-        raise RuntimeError('LAN server did not start in time')
+        raise RuntimeError("LAN server did not start in time")
 
     def _run(self):
         try:
@@ -89,29 +90,27 @@ class EmbeddedLanHost:
             self.server._save_world()
             path = self.server.world.path
             if path.exists():
-                stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                backup_dir = path.parent / 'backups'
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_dir = path.parent / "backups"
                 backup_dir.mkdir(parents=True, exist_ok=True)
 
                 backup = backup_dir / (
-                    f'{path.stem}.before-lan-reset-{stamp}{path.suffix}'
+                    f"{path.stem}.before-lan-reset-{stamp}{path.suffix}"
                 )
                 shutil.copy2(path, backup)
                 path.unlink()
             self.server.world = ServerWorld(path)
             if use_template:
-                self.server.world.generator = 'template_v1'
+                self.server.world.generator = "template_v1"
                 self.server.world.blocks = self.server.world._generated_template()
-                self.server.world.generated_positions = set(
-                    self.server.world.blocks
-                )
+                self.server.world.generated_positions = set(self.server.world.blocks)
                 self.server.world.placed_blocks.clear()
                 self.server.world.removed_blocks.clear()
             self.server._save_world()
             self.server._broadcast_world_reset()
             return {
-                'seed': self.server.world.seed,
-                'generator': self.server.world.generator,
+                "seed": self.server.world.seed,
+                "generator": self.server.world.generator,
             }
 
     def stop(self):
@@ -121,7 +120,7 @@ class EmbeddedLanHost:
         self.thread = None
 
 
-def port_is_available(port, host='0.0.0.0'):
+def port_is_available(port, host="0.0.0.0"):
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT_DIR = Path(__file__).resolve().parent
 DIST_DIR = ROOT_DIR / "dist"
 
@@ -37,16 +36,12 @@ def get_spec_path(system: str, mode: str) -> Path:
     spec_name = os_specs.get(mode)
 
     if spec_name is None:
-        raise RuntimeError(
-            f"{system}では'{mode}'ビルドに対応していない"
-        )
+        raise RuntimeError(f"{system}では'{mode}'ビルドに対応していない")
 
     spec_path = ROOT_DIR / spec_name
 
     if not spec_path.is_file():
-        raise FileNotFoundError(
-            f"specファイルが見つからない: {spec_path}"
-        )
+        raise FileNotFoundError(f"specファイルが見つからない: {spec_path}")
 
     return spec_path
 
@@ -62,6 +57,7 @@ def remove_directory(directory_name: str) -> None:
 def clean_all_outputs() -> None:
     remove_directory("build")
     remove_directory("dist")
+
 
 def organize_macos_app(mode: str) -> None:
     output_name = OUTPUT_NAMES[mode]
@@ -113,6 +109,7 @@ def organize_macos_app(mode: str) -> None:
 
     print(f"配布用app: {destination}")
 
+
 def run_build(
     spec_path: Path,
     mode: str,
@@ -154,10 +151,7 @@ def parse_arguments() -> argparse.Namespace:
         "--mode",
         choices=("all", "client", "server", "debug"),
         default="all",
-        help=(
-            "ビルド種別。"
-            "既定値のallではクライアントとサーバーを両方ビルドする"
-        ),
+        help=("ビルド種別。既定値のallではクライアントとサーバーを両方ビルドする"),
     )
 
     parser.add_argument(
@@ -185,10 +179,7 @@ def main() -> None:
         modes = [args.mode]
 
     try:
-        spec_paths = [
-            (mode, get_spec_path(system, mode))
-            for mode in modes
-        ]
+        spec_paths = [(mode, get_spec_path(system, mode)) for mode in modes]
 
         if args.clean_all:
             clean_all_outputs()

@@ -12,3 +12,6 @@ dependencies = [
     "screeninfo==0.8.1",
     "ursina==5.2.0",
 ]
+
+[tool.basedpyright]
+exclude = ["dist", "build"]

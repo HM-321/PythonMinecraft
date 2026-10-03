@@ -1,14 +1,15 @@
 import os
-import hid
 import struct
 import threading
 import time
+
+import hid
 
 # SDL2のHIDAPIジョイスティックドライバはmacOSで
 # hid_report_callback内の二重解放によりクラッシュする既知の不具合があるため、
 # 無効化して従来のIOKit直結の安定したドライバを使わせる。
 # (pygame.joystick.init()より前、pygameのimportより前に設定する必要がある)
-os.environ.setdefault('SDL_JOYSTICK_HIDAPI', '0')
+os.environ.setdefault("SDL_JOYSTICK_HIDAPI", "0")
 
 try:
     import pygame
@@ -20,18 +21,21 @@ except ImportError:
 
 class Controller:
     # Xbox系コントローラー(生HIDレポートを直接パースする専用ルート)
-    VID = 0x45e
-    PID = 0xb12
+    VID = 0x45E
+    PID = 0xB12
 
     # SDL(gamecontrollerdb)側のマッピング定義がXbox系と上下逆になっている機種。
     # コントローラー名(小文字)にこの文字列が含まれていたらY軸の符号を反転する。
     Y_INVERTED_CONTROLLER_NAMES = (
-        'f710', 'f310', 'f510', 'rumblepad',
-        'switch pro', 'pro controller', 'nintendo'
+        "f710",
+        "f310",
+        "f510",
+        "rumblepad",
+        "switch pro",
+        "pro controller",
+        "nintendo",
     )
-    FACE_BUTTON_SWAP_CONTROLLER_NAMES = (
-        'switch pro', 'pro controller', 'nintendo'
-    )
+    FACE_BUTTON_SWAP_CONTROLLER_NAMES = ("switch pro", "pro controller", "nintendo")
 
     def __init__(self):
         self.connected = False
@@ -72,7 +76,7 @@ class Controller:
                 sdl_controller.set_eventstate(False)
             return True
         except Exception as e:
-            print(f'pygame controller init failed: {e}')
+            print(f"pygame controller init failed: {e}")
             return False
 
     def _detect(self):
@@ -81,9 +85,9 @@ class Controller:
             self.dev.open(self.VID, self.PID)
             self.dev.set_nonblocking(True)
             self.connected = True
-            print(f'Controller: {self.dev.get_product_string()}')
+            print(f"Controller: {self.dev.get_product_string()}")
         except Exception as e:
-            print(f'No controller: {e}')
+            print(f"No controller: {e}")
             self.dev = None
             self._detect_pygame()
 
@@ -105,7 +109,7 @@ class Controller:
                     gc = sdl_controller.Controller(index)
                     self.gc = gc
                     self.connected = True
-                    name = gc.name or ''
+                    name = gc.name or ""
                     self._swap_face_buttons = any(
                         n in name.lower()
                         for n in self.FACE_BUTTON_SWAP_CONTROLLER_NAMES
@@ -113,10 +117,10 @@ class Controller:
                     self._invert_y = any(
                         n in name.lower() for n in self.Y_INVERTED_CONTROLLER_NAMES
                     )
-                    print(f'Controller: {name}')
+                    print(f"Controller: {name}")
                     return
         except Exception as e:
-            print(f'No pygame controller: {e}')
+            print(f"No pygame controller: {e}")
         self.gc = None
         self._invert_y = False
         self._swap_face_buttons = False
@@ -135,7 +139,7 @@ class Controller:
 
             if self.gc:
                 if not self.gc.attached():
-                    print('Controller disconnected')
+                    print("Controller disconnected")
                     self.connected = False
                     self.gc = None
                     with self._state_lock:
@@ -151,7 +155,7 @@ class Controller:
                 elif not data:
                     time.sleep(0.001)
             except Exception as e:
-                print(f'read error: {e}')
+                print(f"read error: {e}")
                 self.connected = False
                 with self._state_lock:
                     self.state = None
@@ -165,22 +169,22 @@ class Controller:
         b1 = data[4]
         b2 = data[5]
         state = {
-            'A': bool(b1 & 0x10),
-            'B': bool(b1 & 0x20),
-            'X': bool(b1 & 0x40),
-            'Y': bool(b1 & 0x80),
-            'LB': bool(b2 & 0x10),
-            'RB': bool(b2 & 0x20),
-            'dpad_up': bool(b2 & 0x01),
-            'dpad_down': bool(b2 & 0x02),
-            'dpad_left': bool(b2 & 0x04),
-            'dpad_right': bool(b2 & 0x08),
-            'LT': struct.unpack_from('<H', raw, 6)[0],
-            'RT': struct.unpack_from('<H', raw, 8)[0],
-            'LX': struct.unpack_from('<h', raw, 10)[0] / 32767.0,
-            'LY': struct.unpack_from('<h', raw, 12)[0] / 32767.0,
-            'RX': struct.unpack_from('<h', raw, 14)[0] / 32767.0,
-            'RY': struct.unpack_from('<h', raw, 16)[0] / 32767.0,
+            "A": bool(b1 & 0x10),
+            "B": bool(b1 & 0x20),
+            "X": bool(b1 & 0x40),
+            "Y": bool(b1 & 0x80),
+            "LB": bool(b2 & 0x10),
+            "RB": bool(b2 & 0x20),
+            "dpad_up": bool(b2 & 0x01),
+            "dpad_down": bool(b2 & 0x02),
+            "dpad_left": bool(b2 & 0x04),
+            "dpad_right": bool(b2 & 0x08),
+            "LT": struct.unpack_from("<H", raw, 6)[0],
+            "RT": struct.unpack_from("<H", raw, 8)[0],
+            "LX": struct.unpack_from("<h", raw, 10)[0] / 32767.0,
+            "LY": struct.unpack_from("<h", raw, 12)[0] / 32767.0,
+            "RX": struct.unpack_from("<h", raw, 14)[0] / 32767.0,
+            "RY": struct.unpack_from("<h", raw, 16)[0] / 32767.0,
         }
         with self._state_lock:
             self.state = state
@@ -195,8 +199,18 @@ class Controller:
             return
 
         self._button_pressed_this_frame = {}
-        for key in ('A', 'B', 'X', 'Y', 'LB', 'RB',
-                    'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right'):
+        for key in (
+            "A",
+            "B",
+            "X",
+            "Y",
+            "LB",
+            "RB",
+            "dpad_up",
+            "dpad_down",
+            "dpad_left",
+            "dpad_right",
+        ):
             now = state.get(key, False)
             prev = self._prev_buttons.get(key, False)
             if now and not prev:
@@ -204,11 +218,11 @@ class Controller:
             self._prev_buttons[key] = now
 
         THRESH = 500
-        now_lt = state.get('LT', 0) > THRESH
+        now_lt = state.get("LT", 0) > THRESH
         self._lt_edge = now_lt and not self._prev_lt
         self._prev_lt = now_lt
 
-        now_rt = state.get('RT', 0) > THRESH
+        now_rt = state.get("RT", 0) > THRESH
         self._rt_edge = now_rt and not self._prev_rt
         self._prev_rt = now_rt
 
@@ -248,22 +262,22 @@ class Controller:
             button_x, button_y = button_y, button_x
 
         state = {
-            'A': button_a,
-            'B': button_b,
-            'X': button_x,
-            'Y': button_y,
-            'LB': button(pygame.CONTROLLER_BUTTON_LEFTSHOULDER),
-            'RB': button(pygame.CONTROLLER_BUTTON_RIGHTSHOULDER),
-            'dpad_up': button(pygame.CONTROLLER_BUTTON_DPAD_UP),
-            'dpad_down': button(pygame.CONTROLLER_BUTTON_DPAD_DOWN),
-            'dpad_left': button(pygame.CONTROLLER_BUTTON_DPAD_LEFT),
-            'dpad_right': button(pygame.CONTROLLER_BUTTON_DPAD_RIGHT),
-            'LT': trigger(pygame.CONTROLLER_AXIS_TRIGGERLEFT),
-            'RT': trigger(pygame.CONTROLLER_AXIS_TRIGGERRIGHT),
-            'LX': axis(pygame.CONTROLLER_AXIS_LEFTX),
-            'LY': axis_y(pygame.CONTROLLER_AXIS_LEFTY),
-            'RX': axis(pygame.CONTROLLER_AXIS_RIGHTX),
-            'RY': axis_y(pygame.CONTROLLER_AXIS_RIGHTY),
+            "A": button_a,
+            "B": button_b,
+            "X": button_x,
+            "Y": button_y,
+            "LB": button(pygame.CONTROLLER_BUTTON_LEFTSHOULDER),
+            "RB": button(pygame.CONTROLLER_BUTTON_RIGHTSHOULDER),
+            "dpad_up": button(pygame.CONTROLLER_BUTTON_DPAD_UP),
+            "dpad_down": button(pygame.CONTROLLER_BUTTON_DPAD_DOWN),
+            "dpad_left": button(pygame.CONTROLLER_BUTTON_DPAD_LEFT),
+            "dpad_right": button(pygame.CONTROLLER_BUTTON_DPAD_RIGHT),
+            "LT": trigger(pygame.CONTROLLER_AXIS_TRIGGERLEFT),
+            "RT": trigger(pygame.CONTROLLER_AXIS_TRIGGERRIGHT),
+            "LX": axis(pygame.CONTROLLER_AXIS_LEFTX),
+            "LY": axis_y(pygame.CONTROLLER_AXIS_LEFTY),
+            "RX": axis(pygame.CONTROLLER_AXIS_RIGHTX),
+            "RY": axis_y(pygame.CONTROLLER_AXIS_RIGHTY),
         }
         with self._state_lock:
             self.state = state
@@ -285,22 +299,22 @@ class Controller:
     def move_x(self):
         if not self.state:
             return 0
-        return self._apply_deadzone(self.state['LX'], self.deadzone_left)
+        return self._apply_deadzone(self.state["LX"], self.deadzone_left)
 
     def move_y(self):
         if not self.state:
             return 0
-        return -self._apply_deadzone(self.state['LY'], self.deadzone_left)
+        return -self._apply_deadzone(self.state["LY"], self.deadzone_left)
 
     def look_x(self):
         if not self.state:
             return 0
-        return self._apply_deadzone(self.state['RX'], self.deadzone_right)
+        return self._apply_deadzone(self.state["RX"], self.deadzone_right)
 
     def look_y(self):
         if not self.state:
             return 0
-        return -self._apply_deadzone(self.state['RY'], self.deadzone_right)
+        return -self._apply_deadzone(self.state["RY"], self.deadzone_right)
 
     def zl_just_pressed(self):
         return self._lt_edge
@@ -311,9 +325,9 @@ class Controller:
     def zl_held(self):
         if not self.state:
             return False
-        return self.state.get('LT', 0) > 500
+        return self.state.get("LT", 0) > 500
 
     def zr_held(self):
         if not self.state:
             return False
-        return self.state.get('RT', 0) > 500
+        return self.state.get("RT", 0) > 500
